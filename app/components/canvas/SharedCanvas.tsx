@@ -1,6 +1,6 @@
 import { useCallback, useState, useEffect } from "react";
 import { ReactFlowWrapper } from "./ReactFlowWrapper";
-import { VideoNode } from "./VideoNode";
+import { ProductNode } from "./ProductNode";
 import { AgentNode } from "./AgentNode";
 import type { NodeTypes } from "./ReactFlowComponents";
 import { Button } from "~/components/ui/button";
@@ -9,7 +9,7 @@ import { Link } from "react-router";
 import { PreviewModal } from "~/components/preview/PreviewModal";
 
 const nodeTypes: NodeTypes = {
-  video: VideoNode,
+  video: ProductNode,
   agent: AgentNode,
 };
 
@@ -57,12 +57,11 @@ export function SharedCanvas({ data }: SharedCanvasProps) {
   // Prepare content for preview
   const previewContent = {
     title: agents.find(a => a.type === 'title')?.draft || '',
-    description: agents.find(a => a.type === 'description')?.draft || '',
-    thumbnailUrl: agents.find(a => a.type === 'thumbnail')?.thumbnailUrl || '',
-    tweets: agents.find(a => a.type === 'tweets')?.draft || '',
-    videoUrl: video.url,
-    videoTitle: video.title,
-    channelName: project.name,
+    bulletPoints: agents.find(a => a.type === 'description')?.draft || '',
+    heroImageUrl: agents.find(a => a.type === 'hero-image')?.thumbnailUrl || '',
+    lifestyleImageUrl: agents.find(a => a.type === 'lifestyle-image')?.thumbnailUrl || '',
+    infographicUrl: agents.find(a => a.type === 'infographic')?.thumbnailUrl || '',
+    brandName: project.name,
   };
 
   // Create node data with read-only handlers
@@ -186,12 +185,11 @@ export function SharedCanvas({ data }: SharedCanvasProps) {
             isOpen={previewOpen}
             onClose={() => setPreviewOpen(false)}
             title={previewContent.title}
-            description={previewContent.description}
-            thumbnailUrl={previewContent.thumbnailUrl}
-            tweets={previewContent.tweets}
-            videoUrl={previewContent.videoUrl}
-            duration={video.duration}
-            channelName={previewContent.channelName}
+            bulletPoints={previewContent.bulletPoints}
+            heroImageUrl={previewContent.heroImageUrl}
+            lifestyleImageUrl={previewContent.lifestyleImageUrl}
+            infographicUrl={previewContent.infographicUrl}
+            brandName={previewContent.brandName}
           />
         </ReactFlowProvider>
       )}

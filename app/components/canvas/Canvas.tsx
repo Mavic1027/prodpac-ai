@@ -1,7 +1,7 @@
 import { api } from "convex/_generated/api";
 import type { Id } from "convex/_generated/dataModel";
 import { useAction, useMutation, useQuery } from "convex/react";
-import { Bot, Check, ChevronLeft, ChevronRight, Eye, FileText, GripVertical, Hash, Layers, Map, Palette, Settings2, Share2, Sparkles, Upload, Video, Zap } from "lucide-react";
+import { BarChart3, Bot, Building2, Check, ChevronLeft, ChevronRight, Eye, FileText, GripVertical, Hash, ImageIcon, Layers, Map, Palette, Settings2, Share2, Sparkles, Upload, Video, Zap } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, type DragEvent } from "react";
 import { toast } from "sonner";
 import { PreviewModal } from "~/components/preview/PreviewModal";
@@ -25,12 +25,15 @@ import type {
 } from "./ReactFlowComponents";
 import { ReactFlowWrapper } from "./ReactFlowWrapper";
 import { ThumbnailUploadModal } from "./ThumbnailUploadModal";
-import { VideoNode } from "./VideoNode";
+import { ProductNode } from "./ProductNode";
 import { VideoPlayerModal } from "./VideoPlayerModal";
+import { ImageModal } from "./ImageModal";
+import { BrandKitNode } from "./BrandKitNode";
 
 const nodeTypes: NodeTypes = {
-  video: VideoNode,
+  video: ProductNode,
   agent: AgentNode,
+  brandKit: BrandKitNode,
 };
 
 function CanvasContent({ projectId }: { projectId: Id<"projects"> }) {
@@ -89,6 +92,8 @@ function InnerCanvas({
   const [pendingThumbnailNode, setPendingThumbnailNode] = useState<string | null>(null);
   const [videoModalOpen, setVideoModalOpen] = useState(false);
   const [selectedVideo, setSelectedVideo] = useState<{ url: string; title: string; duration?: number; fileSize?: number } | null>(null);
+  const [imageModalOpen, setImageModalOpen] = useState(false);
+  const [selectedImage, setSelectedImage] = useState<{ url: string; title: string; fileSize?: number } | null>(null);
   const [previewModalOpen, setPreviewModalOpen] = useState(false);
   const [enableEdgeAnimations, setEnableEdgeAnimations] = useState(true);
   const [isDragging, setIsDragging] = useState(false);
@@ -136,32 +141,33 @@ function InnerCanvas({
   
   // Convex queries
   const canvasState = useQuery(api.canvas.getState, { projectId });
-  const projectVideos = useQuery(api.videos.getByProject, { projectId });
+  const projectProducts = useQuery(api.products.getByProject, { projectId });
   const projectAgents = useQuery(api.agents.getByProject, { projectId });
+  const projectBrandKits = useQuery(api.brandKits.getProjectBrandKit, { projectId });
   const userProfile = useQuery(api.profiles.get);
   
   // Convex mutations
-  const createVideo = useMutation(api.videos.create);
-  const updateVideoMetadata = useMutation(api.videos.updateMetadata);
-  const updateVideo = useMutation(api.videos.update);
+  const createProduct = useMutation(api.products.create);
+  const updateProductMetadata = useMutation(api.products.updateMetadata);
+  const updateProduct = useMutation(api.products.update);
   const generateUploadUrl = useMutation(api.files.generateUploadUrl);
-  const updateVideoStorageId = useMutation(api.videos.updateVideoStorageId);
+  const updateProductStorageId = useMutation(api.products.updateProductStorageId);
   const createAgent = useMutation(api.agents.create);
   const updateAgentDraft = useMutation(api.agents.updateDraft);
   const updateAgentConnections = useMutation(api.agents.updateConnections);
   const updateAgentPosition = useMutation(api.agents.updatePosition);
   const saveCanvasState = useMutation(api.canvas.saveState);
-  const scheduleTranscription = useMutation(api.videoJobs.scheduleTranscription);
-  const deleteVideo = useMutation(api.videos.remove);
+  const deleteProduct = useMutation(api.products.remove);
   const deleteAgent = useMutation(api.agents.remove);
   const createShareLink = useMutation(api.shares.createShareLink);
   const getShareLink = useQuery(api.shares.getShareLink, { projectId });
+  const updateCanvasBrandKit = useMutation(api.brandKits.updateCanvasBrandKit);
   
   // Convex actions for AI
   const generateContent = useAction(api.aiHackathon.generateContentSimple);
-  const generateThumbnail = useAction(api.thumbnail.generateThumbnail);
+  const generateHeroImage = useAction(api.heroImage.generateHeroImage);
   const refineContent = useAction(api.chat.refineContent);
-  const refineThumbnail = useAction(api.thumbnailRefine.refineThumbnail);
+  const refineHeroImage = useAction(api.heroImageRefine.refineHeroImage);
 
   // Handle content generation for an agent node
   const handleGenerate = useCallback(async (nodeId: string, thumbnailImages?: File[], additionalContext?: string) => {
@@ -212,6 +218,19 @@ function InnerCanvas({
       const connectedVideoEdge = edgesRef.current.find((e: any) => e.target === nodeId && e.source?.includes('video'));
       const videoNode = connectedVideoEdge ? nodesRef.current.find((n: any) => n.id === connectedVideoEdge.source) : null;
       
+      // Find connected brand kit node
+      const connectedBrandKitEdge = edgesRef.current.find((e: any) => e.target === nodeId && e.source?.startsWith('brandkit'));
+      const brandKitNode = connectedBrandKitEdge ? nodesRef.current.find((n: any) => n.id === connectedBrandKitEdge.source) : null;
+      console.error("[Canvas] Brand kit connection check:", {
+        nodeId,
+        hasEdges: edgesRef.current.length,
+        brandKitEdge: connectedBrandKitEdge,
+        brandKitNode: brandKitNode?.id,
+        brandKitData: brandKitNode?.data,
+        projectBrandKits: projectBrandKits,
+        allEdges: edgesRef.current.map((e: any) => ({ source: e.source, target: e.target }))
+      });
+      
       // Find other connected agent nodes
       const connectedAgentNodes = edgesRef.current
         .filter((e: any) => e.target === nodeId && e.source?.includes('agent'))
@@ -237,27 +256,47 @@ function InnerCanvas({
       );
 
       // Prepare data for AI generation
-      let videoData: { 
+      let productData: { 
         title?: string; 
-        transcription?: string;
-        duration?: number;
-        resolution?: { width: number; height: number };
-        format?: string;
+        features?: string[];
+        specifications?: any;
+        keywords?: string[];
+        asin?: string;
+        // Enhanced Product Node metadata
+        productName?: string;
+        keyFeatures?: string;
+        targetKeywords?: string;
+        targetAudience?: string;
       } = {};
-      if (videoNode && videoNode.data.videoId) {
-        // Fetch the video with transcription and metadata from database
-        const video = projectVideos?.find((v: any) => v._id === videoNode.data.videoId);
-        videoData = {
+      if (videoNode && videoNode.data.productId) {
+        // Fetch the product with metadata from database
+        const product = projectProducts?.find((p: any) => p._id === videoNode.data.productId);
+        productData = {
           title: videoNode.data.title as string,
-          transcription: video?.transcription,
-          duration: video?.duration,
-          resolution: video?.resolution,
-          format: video?.format,
+          features: product?.features || [],
+          specifications: product?.specifications,
+          keywords: product?.keywords || [],
+          asin: product?.asin,
+          // Include enhanced Product Node metadata from the node data
+          productName: videoNode.data.productName as string,
+          keyFeatures: videoNode.data.keyFeatures as string,
+          targetKeywords: videoNode.data.targetKeywords as string,
+          targetAudience: videoNode.data.targetAudience as string,
         };
         
-        // If no transcription, warn the user
-        if (!video?.transcription) {
-          toast.warning("Generating without transcription - results may be less accurate");
+        console.log("[Canvas] Product data prepared:", {
+          hasTitle: !!productData.title,
+          hasProductName: !!productData.productName,
+          hasKeyFeatures: !!productData.keyFeatures,
+          hasTargetKeywords: !!productData.targetKeywords,
+          hasTargetAudience: !!productData.targetAudience,
+          hasDatabaseFeatures: !!product?.features?.length,
+          productData: productData
+        });
+        
+        // If no product features from either source, warn the user
+        if (!product?.features?.length && !productData.keyFeatures) {
+          toast.warning("Generating without product features - results may be less accurate");
         }
       }
       
@@ -266,16 +305,49 @@ function InnerCanvas({
         content: (n!.data.draft || "") as string,
       }));
       
+      // Prepare brand kit data if connected - fetch from database instead of node data
+      let brandKitData: any = null;
+      
+      // FIRST: Check if there's a brand kit connection via edges
+      const hasBrandKitConnection = brandKitNode !== null;
+      
+      // SECOND: If no direct connection, check if brand kit exists in project and agent is connected to product
+      const hasProductConnection = videoNode !== null;
+      const projectHasBrandKit = projectBrandKits !== null && projectBrandKits !== undefined;
+      
+      console.log("[Canvas] Brand Kit connection analysis:", {
+        hasBrandKitConnection,
+        hasProductConnection, 
+        projectHasBrandKit,
+        brandKitNodeId: brandKitNode?.id,
+        videoNodeId: videoNode?.id,
+        agentNodeId: nodeId
+      });
+      
+      // Use brand kit data if either:
+      // 1. Brand kit is directly connected to agent, OR
+      // 2. Agent is connected to product AND project has a brand kit (workflow: Product -> Agent, with Brand Kit in project)
+      if ((hasBrandKitConnection || (hasProductConnection && projectHasBrandKit)) && projectBrandKits) {
+        brandKitData = {
+          brandName: projectBrandKits.brandName,
+          colorPalette: projectBrandKits.colorPalette,
+          brandVoice: projectBrandKits.brandVoice
+        };
+        console.log("[Canvas] Using Brand Kit data:", brandKitData);
+      } else {
+        console.log("[Canvas] No Brand Kit data available for this agent");
+      }
+      
       // Use real user profile data or fallback to defaults
       const profileData = userProfile ? {
-        channelName: userProfile.channelName,
-        contentType: userProfile.contentType,
+        brandName: userProfile.brandName,
+        productCategory: userProfile.productCategory,
         niche: userProfile.niche,
         tone: userProfile.tone || "Professional and engaging",
         targetAudience: userProfile.targetAudience || "General audience",
       } : {
-        channelName: "My Channel",
-        contentType: "General Content",
+        brandName: "My Brand",
+        productCategory: "General Products",
         niche: "General",
         tone: "Professional and engaging",
         targetAudience: "General audience",
@@ -299,15 +371,15 @@ function InnerCanvas({
         )
       );
 
-      // Generate content based on agent type
-      let result: string;
-      let thumbnailUrl: string | undefined;
-      let thumbnailStorageId: string | undefined;
-      
-      if (agentNode.data.type === "thumbnail" && thumbnailImages) {
-        // For thumbnail agent, use uploaded images
-        console.log("[Canvas] Starting thumbnail generation with uploaded images:", thumbnailImages.length);
-        toast.info("Processing uploaded images for thumbnail generation...");
+              // Generate content based on agent type
+        let result: string;
+        let imageUrl: string | undefined;
+        let imageStorageId: string | undefined;
+        
+        if (agentNode.data.type === "hero-image" && thumbnailImages) {
+        // For hero-image agent, use uploaded images
+        console.log("[Canvas] Starting hero image generation with uploaded images:", thumbnailImages.length);
+        toast.info("Processing uploaded images for hero image generation...");
         
         // Convert uploaded images to data URLs
         console.log("[Canvas] Converting images to data URLs...");
@@ -335,7 +407,7 @@ function InnerCanvas({
                   data: { 
                     ...node.data, 
                     generationProgress: {
-                      stage: "Creating thumbnail design...",
+                      stage: "Creating hero image design...",
                       percent: 60
                     }
                   } 
@@ -344,39 +416,39 @@ function InnerCanvas({
           )
         );
 
-        // Generate thumbnail with vision API
-        console.log("[Canvas] Calling generateThumbnail action with:", {
-          videoId: videoNode?.data.videoId,
+        // Generate hero image with vision API
+        console.log("[Canvas] Calling generateHeroImage action with:", {
+          productId: videoNode?.data.productId,
           frameCount: frames.length,
-          hasVideoData: !!videoData,
-          hasTranscription: !!videoData.transcription,
+          hasProductData: !!productData,
+          hasFeatures: !!productData.features?.length,
           connectedAgentsCount: connectedAgentOutputs.length,
           hasProfile: !!profileData
         });
         
-        const thumbnailResult = await generateThumbnail({
-          agentType: "thumbnail",
-          videoId: videoNode?.data.videoId as Id<"videos"> | undefined,
-          videoFrames: frames.map(f => ({
+        const heroImageResult = await generateHeroImage({
+          agentType: "hero-image",
+          productId: videoNode?.data.productId as Id<"products"> | undefined,
+          productImages: frames.map(f => ({
             dataUrl: f.dataUrl,
             timestamp: f.timestamp,
           })),
-          videoData,
+          productData,
           connectedAgentOutputs,
           profileData,
           additionalContext,
         });
         
-        console.log("[Canvas] Thumbnail generation completed");
-        console.log("[Canvas] Concept received:", thumbnailResult.concept.substring(0, 100) + "...");
-        console.log("[Canvas] Image URL received:", !!thumbnailResult.imageUrl);
+        console.log("[Canvas] Hero image generation completed");
+        console.log("[Canvas] Concept received:", heroImageResult.concept.substring(0, 100) + "...");
+        console.log("[Canvas] Image URL received:", !!heroImageResult.imageUrl);
         
-        result = thumbnailResult.concept;
-        thumbnailUrl = thumbnailResult.imageUrl;
-        thumbnailStorageId = thumbnailResult.storageId;
+        result = heroImageResult.concept;
+        imageUrl = heroImageResult.imageUrl;
+        imageStorageId = heroImageResult.storageId;
         
-        // Store the prompt for thumbnail too
-        if (thumbnailResult.prompt) {
+        // Store the prompt for hero image too
+        if (heroImageResult.prompt) {
           setNodes((nds: any) =>
             nds.map((node: any) =>
               node.id === nodeId
@@ -384,7 +456,7 @@ function InnerCanvas({
                     ...node, 
                     data: { 
                       ...node.data, 
-                      lastPrompt: thumbnailResult.prompt
+                      lastPrompt: heroImageResult.prompt
                     } 
                   }
                 : node
@@ -393,15 +465,15 @@ function InnerCanvas({
         }
         
         // If no image was generated due to safety issues, inform the user
-        if (!thumbnailUrl) {
-          toast.warning("Thumbnail concept created, but image generation was blocked by safety filters. Try uploading different images or adjusting your requirements.");
+        if (!imageUrl) {
+          toast.warning("Hero image concept created, but image generation was blocked by safety filters. Try uploading different images or adjusting your requirements.");
         }
       } else {
         // Update progress based on agent type
         const progressMessages = {
           title: "Crafting compelling title...",
-          description: "Writing SEO-optimized description...",
-          tweets: "Creating viral social content..."
+          "bullet-points": "Writing benefit-focused bullet points...",
+          "lifestyle-image": "Creating lifestyle imagery..."
         };
         
         setNodes((nds: any) =>
@@ -422,13 +494,28 @@ function InnerCanvas({
         );
 
         // Use regular content generation for other agent types
-        const generationResult = await generateContent({
-          agentType: agentNode.data.type as "title" | "description" | "thumbnail" | "tweets",
-          videoId: videoNode?.data.videoId as Id<"videos"> | undefined,
-          videoData,
+        console.log("[Canvas] Calling generateContent with brandKitData:", brandKitData);
+        console.log("[Canvas] Brand kit debug info:", {
+          foundBrandKitNode: !!brandKitNode,
+          projectBrandKitsFromQuery: projectBrandKits,
+          finalBrandKitData: brandKitData
+        });
+        
+        // Prepare the generation parameters, only include brandKitData if it exists
+        const generationParams: any = {
+          agentType: agentNode.data.type as "title" | "bullet-points" | "hero-image" | "lifestyle-image" | "infographic",
+          productId: videoNode?.data.productId as Id<"products"> | undefined,
+          productData,
           connectedAgentOutputs,
           profileData,
-        });
+        };
+        
+        // Only add brandKitData if it's not null/undefined
+        if (brandKitData) {
+          generationParams.brandKitData = brandKitData;
+        }
+        
+        const generationResult = await generateContent(generationParams);
         result = generationResult.content;
         
         // Store the prompt for viewing later
@@ -467,8 +554,8 @@ function InnerCanvas({
 
       // Update node with generated content
       console.log("[Canvas] Updating node with generated content");
-      if (agentNode.data.type === "thumbnail") {
-        console.log("[Canvas] Thumbnail URL to save:", thumbnailUrl ? "Present" : "Missing");
+      if (agentNode.data.type === "hero-image") {
+        console.log("[Canvas] Hero image URL to save:", imageUrl ? "Present" : "Missing");
       }
       
       setNodes((nds: any) =>
@@ -479,7 +566,7 @@ function InnerCanvas({
                 data: {
                   ...node.data,
                   draft: result,
-                  thumbnailUrl: thumbnailUrl,
+                  imageUrl: imageUrl,
                   status: "ready",
                   generationProgress: undefined, // Clear progress when done
                 },
@@ -494,14 +581,14 @@ function InnerCanvas({
           id: agentNode.data.agentId as Id<"agents">,
           draft: result,
           status: "ready",
-          thumbnailUrl: thumbnailUrl,
-          thumbnailStorageId: thumbnailStorageId as Id<"_storage"> | undefined,
+          imageUrl: imageUrl,
+          imageStorageId: imageStorageId as Id<"_storage"> | undefined,
         });
       }
       
-      if (agentNode.data.type === "thumbnail" && thumbnailUrl) {
-        console.log("[Canvas] Thumbnail generation successful with image URL");
-        toast.success("Thumbnail generated successfully! Click 'View' to see the image.");
+      if (agentNode.data.type === "hero-image" && imageUrl) {
+        console.log("[Canvas] Hero image generation successful with image URL");
+        toast.success("Hero image generated successfully! Click 'View' to see the image.");
       } else {
         toast.success(`${agentNode.data.type} generated successfully!`);
       }
@@ -539,7 +626,7 @@ function InnerCanvas({
         });
       }
     }
-  }, [generateContent, generateThumbnail, userProfile, setNodes, updateAgentDraft, projectVideos]);
+  }, [generateContent, generateHeroImage, userProfile, setNodes, updateAgentDraft, projectProducts]);
   
   // Handle thumbnail image upload
   const handleThumbnailUpload = useCallback(async (images: File[]) => {
@@ -579,10 +666,29 @@ function InnerCanvas({
     setPendingThumbnailNode(null);
   }, [pendingThumbnailNode, handleGenerate, chatMessages]);
   
-  // Handle video click
-  const handleVideoClick = useCallback((videoData: { url: string; title: string; duration?: number; fileSize?: number }) => {
-    setSelectedVideo(videoData);
-    setVideoModalOpen(true);
+  // Handle media click - detects if it's image or video
+  const handleVideoClick = useCallback((mediaData: { url: string; title: string; duration?: number; fileSize?: number }) => {
+    // Detect if it's a video or image
+    const isVideo = mediaData.url && (
+      mediaData.url.includes('.mp4') || 
+      mediaData.url.includes('.mov') || 
+      mediaData.url.includes('.avi') || 
+      mediaData.url.includes('.webm') ||
+      mediaData.url.includes('video/') ||
+      mediaData.duration !== undefined
+    );
+
+    if (isVideo) {
+      setSelectedVideo(mediaData);
+      setVideoModalOpen(true);
+    } else {
+      setSelectedImage({
+        url: mediaData.url,
+        title: mediaData.title,
+        fileSize: mediaData.fileSize
+      });
+      setImageModalOpen(true);
+    }
   }, []);
 
   // Handle chat messages with @mentions
@@ -700,12 +806,12 @@ function InnerCanvas({
       const connectedVideoEdge = edgesRef.current.find((e: any) => e.target === agentNode.id && e.source?.includes('video'));
       const videoNode = connectedVideoEdge ? nodesRef.current.find((n: any) => n.id === connectedVideoEdge.source) : null;
       
-      let videoData: { title?: string; transcription?: string } = {};
-      if (videoNode && videoNode.data.videoId) {
-        const video = projectVideos?.find((v: any) => v._id === videoNode.data.videoId);
-        videoData = {
+      let productData: { title?: string; features?: string[] } = {};
+      if (videoNode && videoNode.data.productId) {
+        const product = projectProducts?.find((p: any) => p._id === videoNode.data.productId);
+        productData = {
           title: videoNode.data.title as string,
-          transcription: video?.transcription,
+          features: product?.features || [],
         };
       }
       
@@ -801,14 +907,14 @@ function InnerCanvas({
           )
         );
         
-        result = await refineThumbnail({
+        result = await refineHeroImage({
           agentId: agentNode.data.agentId as Id<"agents">,
-          currentThumbnailUrl: agentNode.data.thumbnailUrl,
+          currentImageUrl: agentNode.data.imageUrl,
           userMessage: cleanMessage, // Use clean message, not the REGENERATE prefix
-          videoId: videoNode?.data.videoId as Id<"videos"> | undefined,
+          productId: videoNode?.data.productId as Id<"products"> | undefined,
           profileData: userProfile ? {
-            channelName: userProfile.channelName,
-            contentType: userProfile.contentType,
+            brandName: userProfile.brandName,
+            productCategory: userProfile.productCategory,
             niche: userProfile.niche,
             tone: userProfile.tone,
             targetAudience: userProfile.targetAudience,
@@ -833,10 +939,10 @@ function InnerCanvas({
             role: msg.role,
             content: msg.content,
           })),
-          videoData,
+          productData,
           profileData: userProfile ? {
-            channelName: userProfile.channelName,
-            contentType: userProfile.contentType,
+            brandName: userProfile.brandName,
+            productCategory: userProfile.productCategory,
             niche: userProfile.niche,
             tone: userProfile.tone,
             targetAudience: userProfile.targetAudience,
@@ -870,14 +976,14 @@ function InnerCanvas({
         )
       );
       
-      // Save to database if it's a thumbnail with a new image
-      if (agentNode.data.type === "thumbnail" && result?.imageUrl && agentNode.data.agentId) {
+      // Save to database if it's a hero-image with a new image
+      if (agentNode.data.type === "hero-image" && result?.imageUrl && agentNode.data.agentId) {
         await updateAgentDraft({
           id: agentNode.data.agentId as Id<"agents">,
           draft: result?.updatedContent || result?.updatedDraft || agentNode.data.draft || "",
           status: "ready",
-          thumbnailUrl: result.imageUrl,
-          thumbnailStorageId: result?.storageId as Id<"_storage"> | undefined,
+          imageUrl: result.imageUrl,
+          imageStorageId: result?.storageId as Id<"_storage"> | undefined,
         });
       }
       
@@ -943,7 +1049,7 @@ function InnerCanvas({
     } finally {
       setIsChatGenerating(false);
     }
-  }, [chatMessages, projectVideos, userProfile, refineContent, setNodes]);
+  }, [chatMessages, projectProducts, userProfile, refineContent, setNodes]);
 
   // Handle chat button click - add @mention to input
   const handleChatButtonClick = useCallback((nodeId: string) => {
@@ -1023,10 +1129,10 @@ function InnerCanvas({
 
   // Generate content for all agent nodes (connect if needed)
   const handleGenerateAll = useCallback(async () => {
-    // Find video node
-    const videoNode = nodes.find((node: any) => node.type === 'video');
-    if (!videoNode) {
-      toast.error("Please add a video first!");
+    // Find product node
+    const productNode = nodes.find((node: any) => node.type === 'video');
+    if (!productNode) {
+      toast.error("Please add a product image first!");
       return;
     }
     
@@ -1040,16 +1146,16 @@ function InnerCanvas({
     setIsGeneratingAll(true);
     setGenerationProgress({ current: 0, total: agentNodes.length });
     
-    // Ensure all agents are connected to video node
+    // Ensure all agents are connected to product node
     agentNodes.forEach((agentNode: any) => {
       const existingEdge = edges.find((edge: any) => 
-        edge.source === videoNode.id && edge.target === agentNode.id
+        edge.source === productNode.id && edge.target === agentNode.id
       );
       
       if (!existingEdge) {
         const newEdge: Edge = {
-          id: `e${videoNode.id}-${agentNode.id}`,
-          source: videoNode.id,
+          id: `e${productNode.id}-${agentNode.id}`,
+          source: productNode.id,
           target: agentNode.id,
           animated: enableEdgeAnimations && !isDragging,
         };
@@ -1059,7 +1165,7 @@ function InnerCanvas({
         if (agentNode.data.agentId) {
           updateAgentConnections({
             id: agentNode.data.agentId as Id<"agents">,
-            connections: [videoNode.data.videoId as string],
+            connections: [productNode.data.productId as string],
           }).catch((error: any) => {
             console.error("Failed to update agent connections:", error);
           });
@@ -1099,12 +1205,13 @@ function InnerCanvas({
       const sourceNode = nodes.find((n: any) => n.id === params.source);
       const targetNode = nodes.find((n: any) => n.id === params.target);
       
-      // Allow connections from video to agent or agent to agent
+      // Allow connections: video->agent, agent->agent, video->brandKit
       if (!sourceNode || !targetNode) return;
       
       if (
         (sourceNode.type === 'video' && targetNode.type === 'agent') ||
-        (sourceNode.type === 'agent' && targetNode.type === 'agent')
+        (sourceNode.type === 'agent' && targetNode.type === 'agent') ||
+        (sourceNode.type === 'video' && targetNode.type === 'brandKit')
       ) {
         setEdges((eds: any) => addEdge(params, eds));
         
@@ -1145,10 +1252,10 @@ function InnerCanvas({
     async (nodes: Node[]) => {
       for (const node of nodes) {
         try {
-          if (node.type === 'video' && node.data.videoId) {
-            // Delete video from database (this also deletes associated agents)
-            await deleteVideo({ id: node.data.videoId as Id<"videos"> });
-            toast.success("Video and associated content deleted");
+          if (node.type === 'video' && node.data.productId) {
+            // Delete product from database (this also deletes associated agents)
+            await deleteProduct({ id: node.data.productId as Id<"products"> });
+            toast.success("Product and associated content deleted");
             
           } else if (node.type === 'agent' && node.data.agentId) {
             // Delete agent from database
@@ -1164,7 +1271,7 @@ function InnerCanvas({
         }
       }
     },
-    [deleteVideo, deleteAgent, setNodes]
+    [deleteProduct, deleteAgent, setNodes]
   );
   
   // Handle share functionality
@@ -1262,6 +1369,50 @@ function InnerCanvas({
     setDeleteDialogOpen(false);
     setNodesToDelete([]);
   }, [nodesToDelete, performDeletion, setNodes]);
+
+  // Handle right-click context menu for node deletion
+  const onNodeContextMenu = useCallback((event: React.MouseEvent, node: Node) => {
+    event.preventDefault();
+    
+    // Create a simple context menu
+    const contextMenu = document.createElement('div');
+    contextMenu.className = 'fixed z-50 bg-background border border-border rounded-lg shadow-lg p-2 min-w-[120px]';
+    contextMenu.style.left = `${event.clientX}px`;
+    contextMenu.style.top = `${event.clientY}px`;
+    
+    const deleteButton = document.createElement('button');
+    deleteButton.className = 'w-full text-left px-3 py-2 text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded flex items-center gap-2';
+    deleteButton.innerHTML = `
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+      </svg>
+      Delete Node
+    `;
+    
+    deleteButton.onclick = () => {
+      setNodesToDelete([node]);
+      setDeleteDialogOpen(true);
+      document.body.removeChild(contextMenu);
+    };
+    
+    contextMenu.appendChild(deleteButton);
+    document.body.appendChild(contextMenu);
+    
+    // Remove context menu when clicking elsewhere
+    const removeMenu = (e: MouseEvent) => {
+      if (!contextMenu.contains(e.target as HTMLElement)) {
+        // Check if the context menu is still in the DOM before removing
+        if (contextMenu.parentNode) {
+          document.body.removeChild(contextMenu);
+        }
+        document.removeEventListener('click', removeMenu);
+      }
+    };
+    
+    setTimeout(() => {
+      document.addEventListener('click', removeMenu);
+    }, 100);
+  }, []);
 
   // Find non-overlapping position for new nodes
   const findNonOverlappingPosition = useCallback((desiredPos: { x: number; y: number }, nodeType: string) => {
@@ -1372,60 +1523,47 @@ function InnerCanvas({
       setNodes((nds: any) => nds.concat(tempNode));
 
       // Validate file before upload
-      const MAX_FILE_SIZE = 1024 * 1024 * 1024; // 1GB limit for ElevenLabs
+      const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100MB limit for product images
       
       if (file.size > MAX_FILE_SIZE) {
         // Remove the temporary node since upload won't proceed
         setNodes((nds: any) => nds.filter((n: any) => n.id !== tempNodeId));
         
         const fileSizeMB = (file.size / 1024 / 1024).toFixed(1);
-        toast.error("Video file too large", {
-          description: `Your video is ${fileSizeMB}MB but the maximum allowed size is 1GB. Please use a shorter clip or compress your video.`,
+        toast.error("Image file too large", {
+          description: `Your image is ${fileSizeMB}MB but the maximum allowed size is 100MB. Please compress your image.`,
           duration: 8000,
-          action: {
-            label: "Learn more",
-            onClick: () => window.open("https://handbrake.fr/", "_blank")
-          }
         });
         
         // Throw error for proper error handling
-        throw new Error(`File is too large (${fileSizeMB}MB). Maximum size is 1GB.`);
-      }
-      
-      // Show warning for large files
-      if (file.size > 100 * 1024 * 1024) {
-        const largeFileSizeMB = (file.size / 1024 / 1024).toFixed(1);
-        toast.warning("Large file detected", {
-          description: `Your ${largeFileSizeMB}MB video may have issues with transcription due to memory limits. Consider using a smaller file.`,
-          duration: 6000,
-        });
+        throw new Error(`File is too large (${fileSizeMB}MB). Maximum size is 100MB.`);
       }
 
-      // Check video format
-      const supportedFormats = ['video/mp4', 'video/quicktime', 'video/x-msvideo', 'video/webm', 'video/mov'];
-      if (!supportedFormats.includes(file.type) && !file.name.match(/\.(mp4|mov|avi|webm)$/i)) {
+      // Check image format (allow both video and image formats for flexibility)
+      const supportedFormats = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'video/mp4', 'video/quicktime', 'video/x-msvideo', 'video/webm'];
+      if (!supportedFormats.some(format => file.type === format || file.name.toLowerCase().includes(format.split('/')[1]))) {
         // Remove the temporary node since upload won't proceed
         setNodes((nds: any) => nds.filter((n: any) => n.id !== tempNodeId));
         
-        toast.error("Unsupported video format", {
-          description: "Please upload MP4, MOV, AVI, or WebM files. Other formats are not supported.",
+        toast.error("Unsupported file format", {
+          description: "Please upload JPG, PNG, WebP, MP4, MOV, AVI, or WebM files.",
           duration: 6000,
         });
         
-        throw new Error('Unsupported video format. Please upload MP4, MOV, AVI, or WebM files.');
+        throw new Error('Unsupported file format. Please upload supported image or video files.');
       }
 
-      // Step 1: Create video record in database first
-      console.log("Creating video record in database...");
-      const video = await createVideo({
+      // Step 1: Create product record in database first
+      console.log("Creating product record in database...");
+      const product = await createProduct({
         projectId,
         title: file.name.replace(/\.[^/.]+$/, ""),
         canvasPosition: position,
       });
       
-      console.log("Video created:", video);
-      if (!video || !video._id) {
-        throw new Error("Failed to create video record in database. Please try again.");
+      console.log("Product created:", product);
+      if (!product || !product._id) {
+        throw new Error("Failed to create product record in database. Please try again.");
       }
       
       // Step 2: Upload to Convex storage
@@ -1444,41 +1582,46 @@ function InnerCanvas({
       const { storageId } = await uploadResult.json();
       console.log("File uploaded to Convex storage:", storageId);
       
-      // Step 3: Update video with storage ID (this also updates the videoUrl)
-      await updateVideoStorageId({
-        id: video._id,
+      // Step 3: Update product with storage ID (this also updates the imageUrl)
+      await updateProductStorageId({
+        productId: product._id,
         storageId,
       });
       
-      // Step 4: Create a temporary blob URL to show video immediately
-      // The actual URL will be set when updateVideoStorageId completes and projectVideos refreshes
+      // Step 4: Create a temporary blob URL to show image immediately
       const temporaryUrl = URL.createObjectURL(file);
       
-      // Clean up the blob URL after a delay (once the real URL should be available)
+      // Clean up the blob URL after a delay
       setTimeout(() => {
         URL.revokeObjectURL(temporaryUrl);
-      }, 30000); // Clean up after 30 seconds
+      }, 30000);
       
-      // Step 5: Update node with real data including video URL
+      // Step 5: Update node with real data
       setNodes((nds: any) => 
         nds.map((node: any) => 
           node.id === tempNodeId
             ? {
                 ...node,
-                id: `video_${video._id}`,
+                id: `video_${product._id}`,
                 data: {
                   ...node.data,
                   isUploading: false,
-                  videoId: video._id,
+                  productId: product._id,
                   storageId: storageId,
-                  videoUrl: temporaryUrl,
-                  // Using Convex storage exclusively
-                  title: video.title,
-                  isTranscribing: true,
+                  imageUrl: temporaryUrl, // Use imageUrl for product images
+                  videoUrl: temporaryUrl, // Keep for backward compatibility
+                  title: product.title,
+                  fileSize: file.size,
+                  onImageClick: () => handleVideoClick({
+                    url: temporaryUrl,
+                    title: product.title || "Untitled Product",
+                    duration: undefined,
+                    fileSize: file.size,
+                  }),
                   onVideoClick: () => handleVideoClick({
                     url: temporaryUrl,
-                    title: video.title || "Untitled Video",
-                    duration: undefined, // Will be populated after metadata extraction
+                    title: product.title || "Untitled Product",
+                    duration: undefined,
                     fileSize: file.size,
                   })
                 },
@@ -1487,411 +1630,13 @@ function InnerCanvas({
         )
       );
       
-      toast.success("Video uploaded successfully!", {
+      toast.success("Product image uploaded successfully!", {
         description: `${file.name} (${(file.size / 1024 / 1024).toFixed(1)}MB)`,
       });
       
-      // Update node to show transcribing state immediately
-      setNodes((nds: any) =>
-        nds.map((node: any) =>
-          node.id === `video_${video._id}`
-            ? {
-                ...node,
-                data: {
-                  ...node.data,
-                  isTranscribing: true,
-                  onVideoClick: node.data.onVideoClick, // Preserve the click handler
-                },
-              }
-            : node
-        )
-      );
+      console.log("Product upload completed successfully");
+      toast.success("Product image uploaded and ready for AI content generation!");
       
-      // Step 6: Extract video metadata (optional, non-blocking)
-      console.log("Starting optional metadata extraction for video:", video._id);
-      // Run metadata extraction in parallel, don't block transcription
-      (async () => {
-        try {
-          
-          // Extract metadata with timeout
-          console.log("Calling extractVideoMetadata...");
-          
-          let metadata: any;
-          try {
-            // Set a timeout for metadata extraction
-            const metadataPromise = extractVideoMetadata(file, {
-              onProgress: (progress) => {
-                console.log("Metadata extraction progress:", progress);
-              },
-              extractThumbnails: false, // Disable thumbnails for now to speed up
-              useFFmpeg: false, // Disable FFmpeg to avoid loading issues
-            });
-            
-            const timeoutPromise = new Promise<never>((_, reject) => {
-              setTimeout(() => reject(new Error("Metadata extraction timeout")), 15000); // 15 second timeout
-            });
-            
-            metadata = await Promise.race([metadataPromise, timeoutPromise]);
-            console.log("Metadata extracted:", metadata);
-          } catch (metadataError) {
-            console.error("Metadata extraction failed, using basic info:", metadataError);
-            // Use basic metadata as fallback
-            metadata = {
-              duration: 0,
-              fileSize: file.size,
-              resolution: { width: 0, height: 0 },
-              frameRate: 0,
-              bitRate: 0,
-              format: file.type.split('/')[1] || 'unknown',
-              codec: 'unknown',
-              thumbnails: []
-            };
-            
-            // Show info message but don't fail the upload
-            toast.info("Video details couldn't be extracted", {
-              description: "The video was uploaded successfully, but some information may be missing.",
-            });
-          }
-          
-          // Update video in database with metadata
-          await updateVideoMetadata({
-            id: video._id,
-            duration: metadata.duration,
-            fileSize: metadata.fileSize,
-            resolution: metadata.resolution,
-            frameRate: metadata.frameRate,
-            bitRate: metadata.bitRate,
-            format: metadata.format,
-            codec: metadata.codec,
-            audioInfo: metadata.audioInfo,
-          });
-          
-          // Update video node with metadata
-          setNodes((nds: any) =>
-            nds.map((node: any) => {
-              if (node.id === `video_${video._id}`) {
-                return {
-                  ...node,
-                  data: {
-                    ...node.data,
-                    duration: metadata.duration,
-                    fileSize: metadata.fileSize,
-                    onVideoClick: () => handleVideoClick({
-                      url: node.data.videoUrl!,
-                      title: node.data.title || "Untitled Video",
-                      duration: metadata.duration,
-                      fileSize: metadata.fileSize,
-                    }),
-                  },
-                };
-              }
-              return node;
-            })
-          );
-          
-          // Only show success if we got real metadata
-          if (metadata.duration > 0 || metadata.resolution.width > 0) {
-            toast.success("Video information extracted!");
-          }
-        } catch (metadataError: any) {
-          console.error("Metadata extraction error:", metadataError);
-          
-          // Handle metadata error gracefully
-          handleVideoError(metadataError, 'Metadata Extraction');
-          
-          // Continue with upload even if metadata fails
-          toast.warning("Could not extract all video information");
-        }
-      })();
-      
-      console.log("Moving to transcription step...");
-      
-      // Step 6: Transcribe video
-      const fileSizeMB = file.size / (1024 * 1024);
-      
-      console.log(`Video file size: ${fileSizeMB.toFixed(2)}MB`);
-      
-      // Small delay to ensure file is available in storage
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      try {
-        // The backend will automatically use ElevenLabs if available (supports 1GB)
-        // Skip audio extraction entirely - let ElevenLabs handle large files directly
-        const SKIP_AUDIO_EXTRACTION = true; // Always use direct transcription with ElevenLabs
-        
-        if (fileSizeMB > 1024) {
-          // File is over 1GB - ElevenLabs limit
-          throw new Error(`File is too large for transcription (${fileSizeMB.toFixed(1)}MB). Maximum size is 1GB.`);
-        }
-        
-        if (false && fileSizeMB > 25 && !SKIP_AUDIO_EXTRACTION) {
-          // For large files, we'll extract audio (unless backend has ElevenLabs)
-          toast.info("Processing large video for transcription...");
-          
-          // Update node to show extraction status
-          setNodes((nds: any) =>
-            nds.map((node: any) =>
-              node.id === `video_${video._id}`
-                ? {
-                    ...node,
-                    data: {
-                      ...node.data,
-                      isTranscribing: false,
-                      isExtracting: true,
-                      extractionProgress: 0,
-                    },
-                  }
-                : node
-            )
-          );
-          
-          // Extract audio from video
-          const audioFile = await extractAudioFromVideo(file, (progress) => {
-              setNodes((nds: any) =>
-                nds.map((node: any) =>
-                  node.id === `video_${video._id}`
-                    ? {
-                        ...node,
-                        data: {
-                          ...node.data,
-                          extractionProgress: Math.round(progress * 100),
-                        },
-                      }
-                    : node
-                )
-              );
-            });
-          
-          // Skip audio upload - Convex handles everything
-          // This code path should not be reached since we skip audio extraction
-          throw new Error("Audio extraction is no longer supported. Please use smaller video files.");
-          
-          // Update node to show transcription status
-          setNodes((nds: any) =>
-            nds.map((node: any) =>
-              node.id === `video_${video._id}`
-                ? {
-                    ...node,
-                    data: {
-                      ...node.data,
-                      isExtracting: false,
-                      isTranscribing: true,
-                    },
-                  }
-                : node
-            )
-          );
-          
-          // Schedule background transcription
-          try {
-            console.log("Scheduling audio transcription for video:", video._id);
-            const result = await scheduleTranscription({
-              videoId: video._id,
-              storageId: audioStorageId,
-              fileType: "audio",
-              fileSize: audioFile.size,
-              fileName: "audio.mp3",
-            });
-            console.log("Schedule transcription result:", result);
-            
-            toast.info("Audio transcription started in background. It will continue even if you close this tab.");
-          } catch (scheduleError: any) {
-            console.error("Failed to schedule transcription:", scheduleError);
-            console.error("Error details:", scheduleError.message, scheduleError.stack);
-            
-            // Don't throw - transcription failure shouldn't fail the whole upload
-            toast.error("Transcription couldn't start", {
-              description: "The video was uploaded but transcription failed. You can try again later.",
-            });
-            
-            // Update node to show transcription failed
-            setNodes((nds: any) =>
-              nds.map((node: any) =>
-                node.id === `video_${video._id}`
-                  ? {
-                      ...node,
-                      data: {
-                        ...node.data,
-                        isTranscribing: false,
-                        isExtracting: false,
-                        hasTranscription: false,
-                        transcriptionError: scheduleError.message,
-                        onRetryTranscription: () => retryTranscription(video._id),
-                      },
-                    }
-                  : node
-              )
-            );
-          }
-        } else {
-          // Client-side transcription with ElevenLabs
-          try {
-            console.log("Starting client-side transcription for video:", video._id);
-            
-            // Show transcription started message
-            toast.info("Video transcription started", {
-              description: `Processing ${file.name}...`,
-            });
-            
-            // Check if file needs compression
-            let fileToTranscribe = file;
-            if (isFileTooLarge(file, 20)) {
-              const fileSizeMB = getFileSizeMB(file);
-              toast.info(`Compressing ${fileSizeMB.toFixed(1)}MB file for transcription...`);
-              
-              try {
-                const compressedBlob = await compressAudioFile(file, {
-                  targetBitrate: 64, // 64 kbps for speech
-                  targetSampleRate: 16000, // 16 kHz for speech recognition
-                  mono: true // Mono is sufficient for transcription
-                });
-                
-                fileToTranscribe = new File([compressedBlob], file.name, { type: 'audio/wav' });
-                const compressedSizeMB = getFileSizeMB(fileToTranscribe);
-                toast.success(`Compressed to ${compressedSizeMB.toFixed(1)}MB`);
-              } catch (compressionError) {
-                console.error("Audio compression failed:", compressionError);
-                toast.warning("Compression failed, attempting with original file...");
-              }
-            }
-            
-            // Create FormData for ElevenLabs
-            const formData = new FormData();
-            formData.append("file", fileToTranscribe);
-            formData.append("model_id", "scribe_v1");
-            
-            // Get the Convex site URL - it should be in format https://xxxxx.convex.site
-            const convexUrl = import.meta.env.VITE_CONVEX_URL;
-            let siteUrl = '';
-            if (convexUrl) {
-              // Extract the deployment name from the URL
-              const match = convexUrl.match(/https:\/\/([^.]+)\.convex\.cloud/);
-              if (match) {
-                siteUrl = `https://${match[1]}.convex.site`;
-              }
-            }
-            const transcribeUrl = `${siteUrl}/api/transcribe`;
-            
-            console.log("Calling transcription API:", transcribeUrl);
-            
-            if (!siteUrl) {
-              throw new Error("Could not determine Convex site URL. Please check your environment configuration.");
-            }
-            
-            // Call our proxy endpoint
-            const transcriptionResponse = await fetch(transcribeUrl, {
-              method: "POST",
-              body: formData,
-            });
-            
-            if (!transcriptionResponse.ok) {
-              const errorText = await transcriptionResponse.text();
-              console.error("Transcription API error:", errorText);
-              throw new Error(`Transcription failed: ${transcriptionResponse.status}`);
-            }
-            
-            const transcriptionResult = await transcriptionResponse.json();
-            console.log("Transcription result:", transcriptionResult);
-            
-            // Check if ElevenLabs couldn't detect speech
-            if (transcriptionResult.text === "We couldn't transcribe the audio. The video might be silent or in an unsupported language.") {
-              throw new Error("No speech detected. The video might be silent, have no audio track, or use an unsupported language.");
-            }
-            
-            // Update the video with transcription
-            if (transcriptionResult.text && transcriptionResult.text.trim().length > 0) {
-              await updateVideo({
-                id: video._id,
-                transcription: transcriptionResult.text,
-              });
-              
-              // Update node to show transcription complete
-              setNodes((nds: any) =>
-                nds.map((node: any) =>
-                  node.id === `video_${video._id}`
-                    ? {
-                        ...node,
-                        data: {
-                          ...node.data,
-                          isTranscribing: false,
-                          hasTranscription: true,
-                          transcriptionError: null,
-                        },
-                      }
-                    : node
-                )
-              );
-              
-              toast.success("Video transcription completed!");
-            } else {
-              throw new Error("No transcription text received. The video might not contain any speech.");
-            }
-          } catch (transcriptionError: any) {
-            console.error("Failed to transcribe:", transcriptionError);
-            console.error("Error details:", transcriptionError.message, transcriptionError.stack);
-            
-            // Video status will be updated by the node state
-            
-            // Update node to show transcription failed
-            setNodes((nds: any) =>
-              nds.map((node: any) =>
-                node.id === `video_${video._id}`
-                  ? {
-                      ...node,
-                      data: {
-                        ...node.data,
-                        isTranscribing: false,
-                        isExtracting: false,
-                        hasTranscription: false,
-                        transcriptionError: transcriptionError.message,
-                        onRetryTranscription: () => retryTranscription(video._id),
-                      },
-                    }
-                  : node
-              )
-            );
-            
-            // Don't throw - transcription failure shouldn't fail the whole upload
-            if (transcriptionError.message.includes("No speech detected")) {
-              toast.warning("No speech detected", {
-                description: "The video was uploaded but appears to be silent or in an unsupported language. Try a different video with clear speech.",
-                duration: 8000,
-              });
-            } else {
-              toast.error("Transcription failed", {
-                description: "The video was uploaded successfully. You can retry transcription later.",
-              });
-            }
-          }
-        }
-        
-        // Note: The transcription status will be updated when we reload from DB
-        // For now, keep showing the transcribing state
-      } catch (transcriptionError: any) {
-        console.error("Transcription error:", transcriptionError);
-        
-        // Handle transcription errors gracefully
-        const errorDetails = handleVideoError(transcriptionError, 'Transcription');
-        
-        // Update node to show transcription failed
-        setNodes((nds: any) =>
-          nds.map((node: any) =>
-            node.id === `video_${video._id}`
-              ? {
-                  ...node,
-                  data: {
-                    ...node.data,
-                    isTranscribing: false,
-                    isExtracting: false,
-                    hasTranscription: false,
-                    transcriptionError: errorDetails.message,
-                    onRetryTranscription: () => retryTranscription(video._id),
-                  },
-                }
-              : node
-          )
-        );
-      }
     } catch (error: any) {
       console.error("Upload error:", error);
       console.error("Full error details:", error.stack);
@@ -1954,194 +1699,22 @@ function InnerCanvas({
     }
   }, [projectId, hasInitializedViewport, hasLoadedFromDB, canvasState, saveCanvasState]);
 
-  const retryTranscription = async (videoId: string) => {
+  const retryTranscription = async (productId: string) => {
     try {
-      const video = nodes.find((n: any) => n.id === `video_${videoId}`)?.data;
-      const videoRecord = projectVideos?.find(v => v._id === videoId);
+      const product = nodes.find((n: any) => n.id === `video_${productId}`)?.data;
+      const productRecord = projectProducts?.find(p => p._id === productId);
       
-      if (!video && !videoRecord) {
-        toast.error("Cannot retry: Video data not found");
+      if (!product && !productRecord) {
+        toast.error("Cannot retry: Product data not found");
         return;
       }
       
-      // Check if we have storage ID
-      const storageId = video?.storageId || videoRecord?.storageId;
-      
-      if (!storageId) {
-        toast.error("Cannot retry: Storage ID not found");
+      // Products don't need transcription, so this function is not applicable
+      toast.info("Product images don't require transcription");
         return;
-      }
-
-      // Clear the old transcription first
-      await updateVideo({
-        id: videoId as any,
-        clearTranscription: true,
-      });
-
-      // Update node to show transcribing state
-      setNodes((nds: any) =>
-        nds.map((node: any) =>
-          node.id === `video_${videoId}`
-            ? {
-                ...node,
-                data: {
-                  ...node.data,
-                  isTranscribing: true,
-                  hasTranscription: false,
-                  transcriptionError: null,
-                  transcriptionProgress: null,
-                },
-              }
-            : node
-        )
-      );
-
-      // Get the video file from storage for client-side transcription
-      if (storageId && videoRecord?.videoUrl) {
-        toast.info("Downloading video for transcription...");
-        
-        try {
-          // Download the video file
-          const response = await fetch(videoRecord.videoUrl);
-          if (!response.ok) {
-            throw new Error("Failed to download video");
-          }
-          
-          const blob = await response.blob();
-          const file = new File([blob], video?.title || "video.mp4", { type: blob.type });
-          
-          // Check if file needs compression
-          let fileToTranscribe = file;
-          if (isFileTooLarge(file, 20)) {
-            const fileSizeMB = getFileSizeMB(file);
-            toast.info(`Compressing ${fileSizeMB.toFixed(1)}MB file for transcription...`);
-            
-            try {
-              const compressedBlob = await compressAudioFile(file, {
-                targetBitrate: 64, // 64 kbps for speech
-                targetSampleRate: 16000, // 16 kHz for speech recognition
-                mono: true // Mono is sufficient for transcription
-              });
-              
-              fileToTranscribe = new File([compressedBlob], file.name, { type: 'audio/wav' });
-              const compressedSizeMB = getFileSizeMB(fileToTranscribe);
-              toast.success(`Compressed to ${compressedSizeMB.toFixed(1)}MB`);
-            } catch (compressionError) {
-              console.error("Audio compression failed:", compressionError);
-              toast.warning("Compression failed, attempting with original file...");
-            }
-          }
-          
-          // Create FormData for ElevenLabs
-          const formData = new FormData();
-          formData.append("file", fileToTranscribe);
-          formData.append("model_id", "scribe_v1");
-          
-          // Get the Convex site URL - it should be in format https://xxxxx.convex.site
-          const convexUrl = import.meta.env.VITE_CONVEX_URL;
-          let siteUrl = '';
-          if (convexUrl) {
-            // Extract the deployment name from the URL
-            const match = convexUrl.match(/https:\/\/([^.]+)\.convex\.cloud/);
-            if (match) {
-              siteUrl = `https://${match[1]}.convex.site`;
-            }
-          }
-          const transcribeUrl = `${siteUrl}/api/transcribe`;
-          
-          if (!siteUrl) {
-            throw new Error("Could not determine Convex site URL. Please check your environment configuration.");
-          }
-          
-          // Call our proxy endpoint
-          const transcriptionResponse = await fetch(transcribeUrl, {
-            method: "POST",
-            body: formData,
-          });
-          
-          if (!transcriptionResponse.ok) {
-            const errorText = await transcriptionResponse.text();
-            throw new Error(`Transcription failed: ${errorText}`);
-          }
-          
-          const transcriptionResult = await transcriptionResponse.json();
-          
-          // Check if ElevenLabs couldn't detect speech
-          if (transcriptionResult.text === "We couldn't transcribe the audio. The video might be silent or in an unsupported language.") {
-            throw new Error("No speech detected. The video might be silent, have no audio track, or use an unsupported language.");
-          }
-          
-          // Update the video with transcription
-          if (transcriptionResult.text && transcriptionResult.text.trim().length > 0) {
-            await updateVideo({
-              id: videoId as any,
-              transcription: transcriptionResult.text,
-            });
-            
-            // Update node to show transcription complete
-            setNodes((nds: any) =>
-              nds.map((node: any) =>
-                node.id === `video_${videoId}`
-                  ? {
-                      ...node,
-                      data: {
-                        ...node.data,
-                        isTranscribing: false,
-                        hasTranscription: true,
-                        transcriptionError: null,
-                      },
-                    }
-                  : node
-              )
-            );
-            
-            toast.success("Transcription completed!");
-          } else {
-            throw new Error("No transcription text received. The video might not contain any speech.");
-          }
         } catch (error: any) {
-          console.error("Transcription error:", error);
-          // Update node to show error
-          setNodes((nds: any) =>
-            nds.map((node: any) =>
-              node.id === `video_${videoId}`
-                ? {
-                    ...node,
-                    data: {
-                      ...node.data,
-                      isTranscribing: false,
-                      hasTranscription: false,
-                      transcriptionError: error.message,
-                    },
-                  }
-                : node
-            )
-          );
-          throw error;
-        }
-      } else {
-        toast.error("Cannot retry: No video URL found");
-        return;
-      }
-    } catch (error: any) {
-      console.error("Retry transcription error:", error);
-      handleVideoError(error, 'Transcription Retry');
-      
-      // Reset node state
-      setNodes((nds: any) =>
-        nds.map((node: any) =>
-          node.id === `video_${videoId}`
-            ? {
-                ...node,
-                data: {
-                  ...node.data,
-                  isTranscribing: false,
-                  transcriptionError: error.message,
-                },
-              }
-            : node
-        )
-      );
+      console.error("Retry operation error:", error);
+      toast.error("Operation not supported for products");
     }
   };
 
@@ -2197,17 +1770,65 @@ function InnerCanvas({
       
       const position = findNonOverlappingPosition(desiredPosition, type);
 
-      // Find the first video node to associate with this agent
-      const videoNode = nodes.find((n: any) => n.type === 'video' && n.data.videoId);
-      if (!videoNode) {
-        toast.error("Please add a video first before adding agents");
+      // Handle brandKit nodes differently
+      if (type === "brandKit") {
+        // Check if brandKit already exists in this project
+        const existingBrandKit = nodes.find((n: any) => n.type === 'brandKit');
+        if (existingBrandKit) {
+          toast.error("Only one Brand Kit per project allowed");
+          return;
+        }
+
+        // Find the first product node to auto-connect to
+        const productNode = nodes.find((n: any) => n.type === 'video' && n.data.productId);
+        if (!productNode) {
+          toast.error("Please add a product image first before adding Brand Kit");
+          return;
+        }
+
+        const nodeId = `brandkit_${Date.now()}`;
+        const newNode: Node = {
+          id: nodeId,
+          type: "brandKit",
+          position,
+          data: {
+            projectId,
+            brandName: "",
+            colorPalette: {
+              type: "preset" as const,
+              preset: "professional-blue" as const,
+            },
+            brandVoice: "professional-trustworthy",
+          },
+        };
+
+        setNodes((nds: any) => nds.concat(newNode));
+        
+        // Automatically create edge from product to brand kit
+        const edgeId = `e${productNode.id}-${nodeId}`;
+        const newEdge: Edge = {
+          id: edgeId,
+          source: productNode.id,
+          target: nodeId,
+          animated: enableEdgeAnimations && !isDragging,
+        };
+        setEdges((eds: any) => [...eds, newEdge]);
+        
+        toast.success("Brand Kit added and connected to product");
+        return;
+      }
+
+      // Find the first product node to associate with this agent
+      const productNode = nodes.find((n: any) => n.type === 'video' && n.data.productId);
+      if (!productNode) {
+        toast.error("Please add a product image first before adding agents");
         return;
       }
 
       // Create agent in database
       createAgent({
-        videoId: videoNode.data.videoId as Id<"videos">,
-        type: type as "title" | "description" | "thumbnail" | "tweets",
+        productId: productNode.data.productId as Id<"products">,
+        type: type as "title" | "bullet-points" | "hero-image" | "lifestyle-image" | "infographic",
         canvasPosition: position,
       }).then((agentId) => {
         const nodeId = `agent_${type}_${agentId}`;
@@ -2237,11 +1858,11 @@ function InnerCanvas({
 
         setNodes((nds: any) => nds.concat(newNode));
         
-        // Automatically create edge from video to agent
-        const edgeId = `e${videoNode.id}-${nodeId}`;
+        // Automatically create edge from product to agent
+        const edgeId = `e${productNode.id}-${nodeId}`;
         const newEdge: Edge = {
           id: edgeId,
-          source: videoNode.id,
+          source: productNode.id,
           target: nodeId,
           animated: enableEdgeAnimations && !isDragging,
         };
@@ -2250,21 +1871,15 @@ function InnerCanvas({
         // Update agent's connections in database
         updateAgentConnections({
           id: agentId,
-          connections: [videoNode.data.videoId as string],
+          connections: [productNode.data.productId as string],
         }).catch((error) => {
           console.error("Failed to update agent connections:", error);
         });
         
-        toast.success(`${type} agent added and connected to video`);
+        toast.success(`${type} agent added and connected to product`);
         
-        // Just inform about transcription status, don't auto-generate
-        if (videoNode.data.isTranscribing) {
-          toast.info("Video is still being transcribed. Generate once complete.");
-        } else if (videoNode.data.hasTranscription) {
-          toast.info("Ready to generate content - click Generate on the agent node");
-        } else {
-          toast.warning("No transcription available - content will be less accurate");
-        }
+        // Products don't need transcription, so just show ready message
+        toast.info("Ready to generate content - click Generate on the agent node");
       }).catch((error) => {
         console.error("Failed to create agent:", error);
         toast.error("Failed to create agent");
@@ -2273,35 +1888,50 @@ function InnerCanvas({
     [reactFlowInstance, setNodes, setEdges, handleVideoUpload, handleGenerate, nodes, createAgent, projectId, updateAgentConnections, handleChatButtonClick, handleRegenerateClick]
   );
 
-  // Load existing videos and agents from the project
+  // Load existing products, agents, and brand kits from the project
   useEffect(() => {
-    if (!hasLoadedFromDB && projectVideos !== undefined && projectAgents !== undefined) {
-      const videoNodes: Node[] = projectVideos.map((video) => ({
-        id: `video_${video._id}`,
-        type: "video",
-        position: video.canvasPosition,
-        data: {
-          videoId: video._id,
-          title: video.title,
-          videoUrl: video.videoUrl,
-          storageId: video.fileId,
-          duration: video.duration,
-          fileSize: video.fileSize,
-          // Transcription flow: idle -> processing -> completed (with transcription text)
-          // Sometimes status is "completed" but transcription text hasn't propagated yet
-          hasTranscription: !!video.transcription,
-          isTranscribing: video.transcriptionStatus === "processing" || (video.transcriptionStatus === "completed" && !video.transcription),
-          transcriptionError: video.transcriptionStatus === "failed" ? video.transcriptionError : null,
-          transcriptionProgress: video.transcriptionProgress || null,
-          onVideoClick: () => handleVideoClick({
-            url: video.videoUrl!,
-            title: video.title || "Untitled Video",
-            duration: video.duration,
-            fileSize: video.fileSize,
-          }),
-          onRetryTranscription: () => retryTranscription(video._id),
-        },
-      }));
+    if (!hasLoadedFromDB && projectProducts !== undefined && projectAgents !== undefined && projectBrandKits !== undefined) {
+      // Get saved canvas state for positions
+      const savedNodes = canvasState?.nodes || [];
+      
+      const productNodes: Node[] = projectProducts.map((product) => {
+        // Use saved position from canvas state if available, otherwise use database position
+        const savedNode = savedNodes.find((n: any) => n.id === `video_${product._id}`);
+        const position = savedNode?.position || product.canvasPosition;
+        
+        return {
+          id: `video_${product._id}`,
+          type: "video",
+          position,
+          data: {
+            productId: product._id,
+            title: product.title,
+            imageUrl: product.productImages?.[0]?.url,
+            videoUrl: product.productImages?.[0]?.url, // Keep for backward compatibility
+            storageId: product.storageId,
+            hasTranscription: false, // Products don't have transcription
+            isTranscribing: false, // Products don't need transcription
+            // Product info fields
+            productName: product.productName,
+            keyFeatures: product.keyFeatures,
+            targetKeywords: product.targetKeywords,
+            targetAudience: product.targetAudience,
+            // brandVoice removed - now handled by Brand Kit
+            onImageClick: () => handleVideoClick({
+              url: product.productImages?.[0]?.url || '',
+              title: product.title || "Untitled Product",
+              duration: undefined,
+              fileSize: undefined,
+            }),
+            onVideoClick: () => handleVideoClick({
+              url: product.productImages?.[0]?.url || '',
+              title: product.title || "Untitled Product",
+              duration: undefined,
+              fileSize: undefined,
+            }),
+          },
+        };
+      });
 
       const agentNodes: Node[] = projectAgents.map((agent) => ({
         id: `agent_${agent.type}_${agent._id}`,
@@ -2311,7 +1941,7 @@ function InnerCanvas({
           agentId: agent._id, // Store the database ID
           type: agent.type,
           draft: agent.draft,
-          thumbnailUrl: agent.thumbnailUrl,
+          thumbnailUrl: agent.imageUrl,
           status: agent.status,
           connections: agent.connections,
           onGenerate: () => handleGenerate(`agent_${agent.type}_${agent._id}`),
@@ -2328,7 +1958,25 @@ function InnerCanvas({
         },
       }));
 
-      setNodes([...videoNodes, ...agentNodes]);
+      // Create brand kit nodes if they exist
+      const brandKitNodes: Node[] = projectBrandKits ? [{
+        id: `brandkit_${projectBrandKits._id}`,
+        type: "brandKit",
+        position: (() => {
+          // Use saved position from canvas state if available, otherwise use database position
+          const savedNode = savedNodes.find((n: any) => n.id === `brandkit_${projectBrandKits._id}`);
+          return savedNode?.position || projectBrandKits.canvasPosition;
+        })(),
+        data: {
+          projectId,
+          brandKitId: projectBrandKits._id,
+          brandName: projectBrandKits.brandName,
+          colorPalette: projectBrandKits.colorPalette,
+          brandVoice: projectBrandKits.brandVoice,
+        },
+      }] : [];
+
+      setNodes([...productNodes, ...agentNodes, ...brandKitNodes]);
       
       // Load chat history from agents
       const allMessages: typeof chatMessages = [];
@@ -2348,40 +1996,80 @@ function InnerCanvas({
       allMessages.sort((a: any, b: any) => a.timestamp - b.timestamp);
       setChatMessages(allMessages);
       
-      // Reconstruct edges based on agent connections
-      const edges: Edge[] = [];
-      projectAgents.forEach((agent) => {
-        agent.connections.forEach((connectionId: string) => {
-          // Find the source node by its data ID
-          let sourceNodeId: string | null = null;
-          
-          // Check if it's a video ID
-          const videoNode = videoNodes.find(vn => vn.data.videoId === connectionId);
-          if (videoNode) {
-            sourceNodeId = videoNode.id;
-          } else {
-            // Check if it's an agent ID
-            const agentNode = agentNodes.find(an => an.data.agentId === connectionId);
-            if (agentNode) {
-              sourceNodeId = agentNode.id;
+      // Reconstruct edges from canvas state if available, otherwise from agent connections
+      let edges: Edge[] = [];
+      
+      if (canvasState?.edges && canvasState.edges.length > 0) {
+        // Use saved canvas state edges (this preserves brand kit connections)
+        console.log("[Canvas] Restoring edges from canvas state:", canvasState.edges.length);
+        edges = canvasState.edges.map((edge: any) => ({
+          id: edge.id,
+          source: edge.source,
+          target: edge.target,
+          sourceHandle: edge.sourceHandle,
+          targetHandle: edge.targetHandle,
+          animated: enableEdgeAnimations && !isDragging,
+        }));
+      } else {
+        // Fallback: reconstruct edges based on agent connections (legacy)
+        console.log("[Canvas] No canvas state edges, reconstructing from agent connections");
+        projectAgents.forEach((agent) => {
+          agent.connections.forEach((connectionId: string) => {
+            // Find the source node by its data ID
+            let sourceNodeId: string | null = null;
+            
+            // Check if it's a product ID
+            const productNode = productNodes.find(pn => pn.data.productId === connectionId);
+            if (productNode) {
+              sourceNodeId = productNode.id;
+            } else {
+              // Check if it's an agent ID
+              const agentNode = agentNodes.find(an => an.data.agentId === connectionId);
+              if (agentNode) {
+                sourceNodeId = agentNode.id;
+              }
             }
-          }
-          
-          if (sourceNodeId) {
-            edges.push({
-              id: `e${sourceNodeId}-agent_${agent.type}_${agent._id}`,
-              source: sourceNodeId,
-              target: `agent_${agent.type}_${agent._id}`,
-              animated: enableEdgeAnimations && !isDragging,
-            });
-          }
+            
+            if (sourceNodeId) {
+              edges.push({
+                id: `e${sourceNodeId}-agent_${agent.type}_${agent._id}`,
+                source: sourceNodeId,
+                target: `agent_${agent.type}_${agent._id}`,
+                animated: enableEdgeAnimations && !isDragging,
+              });
+            }
+          });
         });
-      });
+      }
+      
+      // ALWAYS ensure Brand Kit is connected to the first product (if both exist)
+      if (brandKitNodes.length > 0 && productNodes.length > 0) {
+        const brandKitNode = brandKitNodes[0];
+        const productNode = productNodes[0];
+        const brandKitConnectionId = `e${productNode.id}-${brandKitNode.id}`;
+        
+        // Check if Brand Kit connection already exists
+        const brandKitConnectionExists = edges.some(edge => 
+          edge.source === productNode.id && edge.target === brandKitNode.id
+        );
+        
+        if (!brandKitConnectionExists) {
+          console.log("[Canvas] Creating missing Brand Kit connection");
+          edges.push({
+            id: brandKitConnectionId,
+            source: productNode.id,
+            target: brandKitNode.id,
+            animated: enableEdgeAnimations && !isDragging,
+          });
+        } else {
+          console.log("[Canvas] Brand Kit connection already exists");
+        }
+      }
       
       setEdges(edges);
       setHasLoadedFromDB(true);
     }
-  }, [projectVideos, projectAgents, hasLoadedFromDB, setNodes, setEdges, handleGenerate, handleChatButtonClick]);
+  }, [projectProducts, projectAgents, projectBrandKits, canvasState, hasLoadedFromDB, setNodes, setEdges, handleGenerate, handleChatButtonClick]);
   
   // Load canvas viewport state - only run once when everything is ready
   useEffect(() => {
@@ -2427,66 +2115,47 @@ function InnerCanvas({
     }
   }, [nodes]);
 
-  // Periodically check for transcription updates
+  // Products don't need transcription updates, so this can be simplified
   useEffect(() => {
-    const interval = setInterval(() => {
-      // Update nodes with current transcription status from database
-      if (projectVideos && projectVideos.length > 0) {
+    // Update nodes with current product data from database  
+    if (projectProducts && projectProducts.length > 0) {
         setNodes((nds: any) =>
           nds.map((node: any) => {
             if (node.type === 'video') {
-              const video = projectVideos.find((v: any) => `video_${v._id}` === node.id);
-              if (video) {
-                // Only update if status has changed
-                const newHasTranscription = !!video.transcription || video.transcriptionStatus === "completed";
-                const newIsTranscribing = video.transcriptionStatus === "processing";
-                const newTranscriptionError = video.transcriptionStatus === "failed" ? video.transcriptionError : null;
-                
-                if (node.data.hasTranscription !== newHasTranscription ||
-                    node.data.isTranscribing !== newIsTranscribing ||
-                    node.data.transcriptionError !== newTranscriptionError) {
-                  console.log(`Updating video ${video._id} transcription status:`, {
-                    status: video.transcriptionStatus,
-                    hasTranscription: newHasTranscription,
-                    isTranscribing: newIsTranscribing,
-                    error: newTranscriptionError
-                  });
-                  
-                  // Show toast when transcription completes
-                  if (!node.data.hasTranscription && newHasTranscription) {
-                    toast.success("Video transcription completed!");
-                  } else if (!node.data.transcriptionError && newTranscriptionError) {
-                    toast.error(`Transcription failed: ${newTranscriptionError}`);
-                  }
-                  
+            const product = projectProducts.find((p: any) => `video_${p._id}` === node.id);
+            // Get the main product image from productImages array
+            const mainImage = product?.productImages?.find((img: any) => img.type === 'main');
+            const imageUrl = mainImage?.url;
+            
+            if (product && imageUrl && imageUrl !== node.data.imageUrl) {
+              // Update with real image URL from database
                   return {
                     ...node,
                     data: {
                       ...node.data,
-                      videoUrl: video.videoUrl || node.data.videoUrl, // Update URL if available
-                      hasTranscription: newHasTranscription,
-                      isTranscribing: newIsTranscribing,
-                      transcriptionError: newTranscriptionError,
-                      onRetryTranscription: newTranscriptionError ? () => retryTranscription(video._id) : undefined,
-                      onVideoClick: video.videoUrl ? () => handleVideoClick({
-                        url: video.videoUrl!,
-                        title: video.title || "Untitled Video",
-                        duration: video.duration,
-                        fileSize: video.fileSize,
-                      }) : node.data.onVideoClick,
-                    },
-                  };
-                }
+                  imageUrl: imageUrl, // Use imageUrl for product images
+                  videoUrl: imageUrl, // Keep for backward compatibility
+                  onImageClick: () => handleVideoClick({
+                    url: imageUrl,
+                    title: product.title || "Untitled Product",
+                    duration: undefined,
+                    fileSize: undefined,
+                  }),
+                  onVideoClick: () => handleVideoClick({
+                    url: imageUrl,
+                    title: product.title || "Untitled Product",
+                    duration: undefined,
+                    fileSize: undefined,
+                  }),
+                },
+              };
               }
             }
             return node;
           })
         );
       }
-    }, 3000); // Check every 3 seconds
-    
-    return () => clearInterval(interval);
-  }, [projectVideos, setNodes]);
+  }, [projectProducts, setNodes]);
 
   // Auto-save canvas state
   useEffect(() => {
@@ -2581,34 +2250,61 @@ function InnerCanvas({
               <DraggableNode 
                 type="title" 
                 label={isSidebarCollapsed ? "" : "Title Generator"} 
-                description={isSidebarCollapsed ? "" : "Create engaging video titles"}
+                description={isSidebarCollapsed ? "" : "Create compelling product titles"}
                 icon={<Hash className="h-5 w-5" />}
                 collapsed={isSidebarCollapsed}
                 color="blue"
               />
               <DraggableNode 
-                type="description" 
+                type="bullet-points" 
                 label={isSidebarCollapsed ? "" : "Description Writer"} 
-                description={isSidebarCollapsed ? "" : "Write SEO-optimized descriptions"}
+                description={isSidebarCollapsed ? "" : "Write Amazon-optimized bullet points"}
                 icon={<FileText className="h-5 w-5" />}
                 collapsed={isSidebarCollapsed}
                 color="green"
               />
               <DraggableNode 
-                type="thumbnail" 
-                label={isSidebarCollapsed ? "" : "Thumbnail Designer"} 
-                description={isSidebarCollapsed ? "" : "Design eye-catching thumbnails"}
+                type="hero-image" 
+                label={isSidebarCollapsed ? "" : "Hero Image Designer"} 
+                description={isSidebarCollapsed ? "" : "Design product hero images"}
                 icon={<Palette className="h-5 w-5" />}
                 collapsed={isSidebarCollapsed}
                 color="purple"
               />
               <DraggableNode 
-                type="tweets" 
-                label={isSidebarCollapsed ? "" : "Social Media"} 
-                description={isSidebarCollapsed ? "" : "Create viral tweets & posts"}
+                type="lifestyle-image" 
+                label={isSidebarCollapsed ? "" : "Lifestyle Image Generator"} 
+                description={isSidebarCollapsed ? "" : "Create lifestyle product shots"}
                 icon={<Zap className="h-5 w-5" />}
                 collapsed={isSidebarCollapsed}
                 color="yellow"
+              />
+              <DraggableNode 
+                type="infographic" 
+                label={isSidebarCollapsed ? "" : "Infographic Designer"} 
+                description={isSidebarCollapsed ? "" : "Create product feature charts"}
+                icon={<BarChart3 className="h-5 w-5" />}
+                collapsed={isSidebarCollapsed}
+                color="orange"
+              />
+            </div>
+            
+            {/* Brand Section */}
+            <div className="space-y-3 mt-6">
+              {!isSidebarCollapsed && (
+                <div className="flex items-center gap-2 mb-4">
+                  <Building2 className="h-4 w-4 text-muted-foreground" />
+                  <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Brand Kit</span>
+                </div>
+              )}
+              
+              <DraggableNode 
+                type="brandKit" 
+                label={isSidebarCollapsed ? "" : "Brand Kit"} 
+                description={isSidebarCollapsed ? "" : "Define your brand identity"}
+                icon={<Building2 className="h-5 w-5" />}
+                collapsed={isSidebarCollapsed}
+                color="red"
               />
             </div>
             
@@ -2618,11 +2314,11 @@ function InnerCanvas({
                   <div className="absolute inset-0 bg-gradient-to-r from-primary/20 to-purple-500/20 rounded-xl blur-xl" />
                   <div className="relative rounded-xl bg-gradient-to-r from-primary/10 to-purple-500/10 border border-primary/20 p-4 space-y-3">
                     <div className="flex items-center gap-2">
-                      <Video className="h-5 w-5 text-primary" />
+                      <ImageIcon className="h-5 w-5 text-primary" />
                       <span className="text-sm font-medium">Quick Start</span>
                     </div>
                     <p className="text-xs text-muted-foreground leading-relaxed">
-                      Drag a video file directly onto the canvas to begin
+                      Drag a product image directly onto the canvas to begin
                     </p>
                     <Button
                       onClick={() => fileInputRef.current?.click()}
@@ -2631,7 +2327,7 @@ function InnerCanvas({
                       className="w-full"
                     >
                       <Upload className="h-4 w-4 mr-2" />
-                      Upload Video
+                      Upload Product Image
                     </Button>
                   </div>
                 </div>
@@ -2645,7 +2341,7 @@ function InnerCanvas({
                   size="icon"
                   variant="secondary"
                   className="w-full hover:bg-primary/10"
-                  title="Upload Video"
+                  title="Upload Product Image"
                 >
                   <Upload className="h-5 w-5" />
                 </Button>
@@ -2805,8 +2501,8 @@ function InnerCanvas({
               // Update position in database
               if (node.type === 'video' && node.data.videoId) {
                 try {
-                  await updateVideo({
-                    id: node.data.videoId as Id<"videos">,
+                  await updateProduct({
+                    id: node.data.productId as Id<"products">,
                     canvasPosition: node.position,
                   });
                 } catch (error) {
@@ -2821,11 +2517,21 @@ function InnerCanvas({
                 } catch (error) {
                   console.error("Failed to update agent position:", error);
                 }
+              } else if (node.type === 'brandKit' && node.data.brandKitId) {
+                try {
+                  await updateCanvasBrandKit({
+                    id: node.data.brandKitId as Id<"canvasBrandKits">,
+                    canvasPosition: node.position,
+                  });
+                } catch (error) {
+                  console.error("Failed to update brand kit position:", error);
+                }
               }
             }}
             onEdgesChange={onEdgesChange}
             onConnect={onConnect}
             onNodesDelete={onNodesDelete}
+            onNodeContextMenu={onNodeContextMenu}
             onInit={setReactFlowInstance}
             onDrop={onDrop}
             onDragOver={onDragOver}
@@ -2880,37 +2586,24 @@ function InnerCanvas({
           isOpen={!!selectedNodeForModal}
           onClose={() => setSelectedNodeForModal(null)}
           nodeData={selectedNodeForModal ? 
-            nodes.find((n: any) => n.id === selectedNodeForModal)?.data as { type: string; draft: string; thumbnailUrl?: string } | undefined || null 
+            nodes.find((n: any) => n.id === selectedNodeForModal)?.data as { type: string; draft: string; thumbnailUrl?: string; imageUrl?: string } | undefined || null 
             : null}
           onUpdate={(newContent) => {
             if (selectedNodeForModal) {
               handleContentUpdate(selectedNodeForModal, newContent);
             }
           }}
-          videoData={(() => {
-            // Find connected video node
-            const agentNode = nodes.find((n: any) => n.id === selectedNodeForModal);
-            if (!agentNode || agentNode.type !== 'agent') return undefined;
-            
-            const videoEdge = edges.find((e: any) => e.target === selectedNodeForModal && e.source?.includes('video'));
-            if (!videoEdge) return undefined;
-            
-            const videoNode = nodes.find((n: any) => n.id === videoEdge.source);
-            if (!videoNode) return undefined;
-            
-            const video = projectVideos?.find((v: any) => v._id === videoNode.data.videoId);
-            
-            return {
-              title: videoNode.data.title || video?.title,
-              thumbnailUrl: video?.thumbnailUrl || videoNode.data.thumbnail,
-              duration: videoNode.data.duration || video?.duration,
-            };
-          })()}
-          channelData={userProfile ? {
-            channelName: userProfile.channelName,
-            channelAvatar: undefined, // Could add avatar URL to profile
-            subscriberCount: "1.2K", // Could add to profile
-          } : undefined}
+          productData={{
+            title: nodes.find((n: any) => n.type === 'agent' && n.data.type === 'title')?.data.draft || '',
+            bulletPoints: nodes.find((n: any) => n.type === 'agent' && n.data.type === 'description')?.data.draft || '',
+            productImages: nodes.find((n: any) => n.type === 'product')?.data.images || [],
+            heroImageUrl: nodes.find((n: any) => n.type === 'agent' && n.data.type === 'hero-image')?.data.imageUrl,
+            lifestyleImageUrl: nodes.find((n: any) => n.type === 'agent' && n.data.type === 'lifestyle-image')?.data.imageUrl,
+            infographicUrl: nodes.find((n: any) => n.type === 'agent' && n.data.type === 'infographic')?.data.imageUrl,
+          }}
+          brandData={{
+            brandName: nodes.find((n: any) => n.type === 'brandKit')?.data.brandName || userProfile?.brandName || 'Your Brand',
+          }}
         />
         
         {/* Thumbnail Upload Modal */}
@@ -2936,6 +2629,20 @@ function InnerCanvas({
             title={selectedVideo.title}
             duration={selectedVideo.duration}
             fileSize={selectedVideo.fileSize}
+          />
+        )}
+        
+        {/* Image Modal */}
+        {selectedImage && (
+          <ImageModal
+            isOpen={imageModalOpen}
+            onClose={() => {
+              setImageModalOpen(false);
+              setSelectedImage(null);
+            }}
+            imageUrl={selectedImage.url}
+            title={selectedImage.title}
+            fileSize={selectedImage.fileSize}
           />
         )}
         
@@ -2968,7 +2675,7 @@ function InnerCanvas({
         <input
           ref={fileInputRef}
           type="file"
-          accept="video/*"
+          accept="image/*,video/*"
           style={{ display: 'none' }}
           onChange={async (e) => {
             const file = e.target.files?.[0];
@@ -2995,13 +2702,12 @@ function InnerCanvas({
           isOpen={previewModalOpen}
           onClose={() => setPreviewModalOpen(false)}
           title={nodes.find((n: any) => n.type === 'agent' && n.data.type === 'title')?.data.draft || ''}
-          description={nodes.find((n: any) => n.type === 'agent' && n.data.type === 'description')?.data.draft || ''}
-          tweets={nodes.find((n: any) => n.type === 'agent' && n.data.type === 'tweets')?.data.draft || ''}
-          thumbnailUrl={nodes.find((n: any) => n.type === 'agent' && n.data.type === 'thumbnail')?.data.thumbnailUrl}
-          videoUrl={nodes.find((n: any) => n.type === 'video')?.data.videoUrl}
-          duration={nodes.find((n: any) => n.type === 'video')?.data.duration}
-          channelName={userProfile?.channelName}
-          subscriberCount="1.2K"
+          bulletPoints={nodes.find((n: any) => n.type === 'agent' && n.data.type === 'description')?.data.draft || ''}
+          productImages={nodes.find((n: any) => n.type === 'product')?.data.images || []}
+          heroImageUrl={nodes.find((n: any) => n.type === 'agent' && n.data.type === 'hero-image')?.data.imageUrl}
+          lifestyleImageUrl={nodes.find((n: any) => n.type === 'agent' && n.data.type === 'lifestyle-image')?.data.imageUrl}
+          infographicUrl={nodes.find((n: any) => n.type === 'agent' && n.data.type === 'infographic')?.data.imageUrl}
+          brandName={nodes.find((n: any) => n.type === 'brandKit')?.data.brandName || userProfile?.brandName || 'Your Brand'}
         />
         
         {/* Delete Confirmation Dialog */}
@@ -3035,7 +2741,7 @@ function DraggableNode({
   description?: string;
   icon?: React.ReactNode;
   collapsed?: boolean;
-  color?: "blue" | "green" | "purple" | "yellow";
+  color?: "blue" | "green" | "purple" | "yellow" | "orange" | "red";
 }) {
   const onDragStart = (event: React.DragEvent) => {
     event.dataTransfer.setData("application/reactflow", type);
@@ -3047,6 +2753,8 @@ function DraggableNode({
     green: "from-green-500/20 to-green-600/20 hover:from-green-500/30 hover:to-green-600/30 border-green-500/30 text-green-500",
     purple: "from-purple-500/20 to-purple-600/20 hover:from-purple-500/30 hover:to-purple-600/30 border-purple-500/30 text-purple-500",
     yellow: "from-yellow-500/20 to-yellow-600/20 hover:from-yellow-500/30 hover:to-yellow-600/30 border-yellow-500/30 text-yellow-500",
+    orange: "from-orange-500/20 to-orange-600/20 hover:from-orange-500/30 hover:to-orange-600/30 border-orange-500/30 text-orange-500",
+    red: "from-red-500/20 to-red-600/20 hover:from-red-500/30 hover:to-red-600/30 border-red-500/30 text-red-500",
   };
 
   if (collapsed) {

@@ -13,7 +13,11 @@ export const refineContent = action({
       v.literal("title"),
       v.literal("description"),
       v.literal("thumbnail"),
-      v.literal("tweets")
+      v.literal("tweets"),
+      v.literal("bullet-points"),
+      v.literal("hero-image"),
+      v.literal("lifestyle-image"),
+      v.literal("infographic")
     ),
     chatHistory: v.array(
       v.object({
@@ -33,6 +37,21 @@ export const refineContent = action({
         format: v.optional(v.string()),
       })
     ),
+    productData: v.optional(
+      v.object({
+        title: v.optional(v.string()),
+        features: v.optional(v.array(v.string())),
+        specifications: v.optional(v.object({
+          dimensions: v.optional(v.string()),
+          weight: v.optional(v.string()),
+          materials: v.optional(v.array(v.string())),
+          color: v.optional(v.string()),
+          size: v.optional(v.string()),
+        })),
+        keywords: v.optional(v.array(v.string())),
+        asin: v.optional(v.string()),
+      })
+    ),
     connectedAgentOutputs: v.optional(v.array(
       v.object({
         type: v.string(),
@@ -40,13 +59,22 @@ export const refineContent = action({
       })
     )),
     profileData: v.optional(
-      v.object({
-        channelName: v.string(),
-        contentType: v.string(),
-        niche: v.string(),
-        tone: v.optional(v.string()),
-        targetAudience: v.optional(v.string()),
-      })
+      v.union(
+        v.object({
+          channelName: v.string(),
+          contentType: v.string(),
+          niche: v.string(),
+          tone: v.optional(v.string()),
+          targetAudience: v.optional(v.string()),
+        }),
+        v.object({
+          brandName: v.string(),
+          productCategory: v.string(),
+          niche: v.string(),
+          tone: v.optional(v.string()),
+          targetAudience: v.optional(v.string()),
+        })
+      )
     ),
   },
   handler: async (ctx, args): Promise<{ response: string; updatedDraft: string }> => {
@@ -71,9 +99,13 @@ export const refineContent = action({
         prompt += "\n";
       }
       
-      // Add context about the video if available
+      // Add context about the video or product if available
       if (args.videoData?.transcription) {
         prompt += `Video context: ${args.videoData.transcription.slice(0, 1000)}...\n\n`;
+      }
+      
+      if (args.productData?.features) {
+        prompt += `Product features: ${args.productData.features.join(', ')}\n\n`;
       }
       
       // Add connected agent outputs if available
@@ -85,11 +117,19 @@ export const refineContent = action({
         prompt += "\n";
       }
       
-      // Add profile data if available
+      // Add profile data if available - handle both old and new profile structures
       if (args.profileData) {
-        prompt += "Channel Profile:\n";
-        prompt += `Channel: ${args.profileData.channelName} (${args.profileData.niche})\n`;
-        prompt += `Content Type: ${args.profileData.contentType}\n`;
+        // Check if it's the old channel-based profile
+        if ('channelName' in args.profileData) {
+          prompt += "Channel Profile:\n";
+          prompt += `Channel: ${args.profileData.channelName} (${args.profileData.niche})\n`;
+          prompt += `Content Type: ${args.profileData.contentType}\n`;
+        } else {
+          // New brand-based profile
+          prompt += "Brand Profile:\n";
+          prompt += `Brand: ${args.profileData.brandName} (${args.profileData.niche})\n`;
+          prompt += `Product Category: ${args.profileData.productCategory}\n`;
+        }
         if (args.profileData.tone) {
           prompt += `Tone: ${args.profileData.tone}\n`;
         }

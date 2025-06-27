@@ -14,16 +14,18 @@ import {
   Palette,
   Zap,
   Bot,
-  Brain
+  Brain,
+  BarChart3
 } from "lucide-react";
 import { Card } from "~/components/ui/card";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
 
 export interface AgentNodeData {
-  type: "title" | "description" | "thumbnail" | "tweets";
+  type: "title" | "bullet-points" | "hero-image" | "lifestyle-image" | "infographic";
   draft: string;
   thumbnailUrl?: string;
+  imageUrl?: string; // For hero-image and lifestyle-image agents
   status: "idle" | "generating" | "ready" | "error";
   connections: string[];
   generationProgress?: {
@@ -37,34 +39,42 @@ const agentConfig = {
   title: {
     icon: Hash,
     label: "Title Generator",
-    description: "Create engaging titles",
+    description: "Compelling product titles",
     color: "blue",
     gradient: "from-blue-500/20 to-cyan-500/20",
     iconColor: "text-blue-500",
   },
-  description: {
+  "bullet-points": {
     icon: FileText,
     label: "Description Writer",
-    description: "SEO-optimized descriptions",
+    description: "Amazon-optimized bullet points",
     color: "green",
     gradient: "from-green-500/20 to-emerald-500/20",
     iconColor: "text-green-500",
   },
-  thumbnail: {
+  "hero-image": {
     icon: Palette,
-    label: "Thumbnail Designer",
-    description: "Eye-catching visuals",
+    label: "Hero Image Designer",
+    description: "Product hero images",
     color: "purple",
     gradient: "from-purple-500/20 to-pink-500/20",
     iconColor: "text-purple-500",
   },
-  tweets: {
+  "lifestyle-image": {
     icon: Zap,
-    label: "Social Media",
-    description: "Viral tweets & posts",
+    label: "Lifestyle Image Generator",
+    description: "Lifestyle product shots",
     color: "yellow",
     gradient: "from-yellow-500/20 to-orange-500/20",
     iconColor: "text-yellow-500",
+  },
+  infographic: {
+    icon: BarChart3,
+    label: "Infographic Designer",
+    description: "Product feature charts",
+    color: "orange",
+    gradient: "from-orange-500/20 to-red-500/20",
+    iconColor: "text-orange-500",
   },
 };
 
@@ -190,12 +200,12 @@ export const AgentNode = memo(({ data, selected, id }: ExtendedNodeProps) => {
       )}
       
       {/* Regular content display */}
-      {data.status !== "generating" && (data.type === "thumbnail" && data.thumbnailUrl ? (
+      {data.status !== "generating" && ((data.type === "hero-image" || data.type === "lifestyle-image") && (data.thumbnailUrl || data.imageUrl) ? (
         <div className="mb-4 cursor-pointer group/content" onClick={data.onView}>
           <div className="aspect-video relative rounded-xl overflow-hidden bg-black shadow-lg transition-all duration-300 hover:shadow-xl">
             <img 
-              src={data.thumbnailUrl} 
-              alt="Generated thumbnail" 
+              src={data.thumbnailUrl || data.imageUrl} 
+              alt="Generated image" 
               className="w-full h-full object-cover transition-transform duration-300 group-hover/content:scale-105"
             />
             <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-transparent opacity-0 group-hover/content:opacity-100 transition-opacity" />
@@ -209,7 +219,7 @@ export const AgentNode = memo(({ data, selected, id }: ExtendedNodeProps) => {
       ) : data.draft ? (
         <div className="mb-4 cursor-pointer group/content" onClick={data.onView}>
           <div className="rounded-lg bg-muted/50 p-4 border border-border/50 transition-all duration-200 hover:bg-muted/70 hover:border-border">
-            <p className="text-sm text-foreground/80 line-clamp-3 leading-relaxed">
+            <p className={`text-sm text-foreground/80 leading-relaxed ${data.type === 'title' ? '' : 'line-clamp-3'}`}>
               {cleanDraftText(data.draft, data.type)}
             </p>
           </div>
@@ -260,17 +270,10 @@ export const AgentNode = memo(({ data, selected, id }: ExtendedNodeProps) => {
             onClick={data.onGenerate}
             disabled={data.status === "generating"}
           >
-            {data.status === "generating" ? (
-              <>
-                <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
-                Generating...
-              </>
-            ) : (
-              <>
-                <Sparkles className="h-3.5 w-3.5 mr-1.5" />
-                Generate
-              </>
-            )}
+            <>
+              <Sparkles className="h-3.5 w-3.5 mr-1.5" />
+              Generate
+            </>
           </Button>
         )}
       </div>

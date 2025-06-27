@@ -9,21 +9,47 @@ export const generateContentSimple = action({
   args: {
     agentType: v.union(
       v.literal("title"),
-      v.literal("description"),
-      v.literal("thumbnail"),
-      v.literal("tweets")
+      v.literal("bullet-points"),
+      v.literal("hero-image"),
+      v.literal("lifestyle-image"),
+      v.literal("infographic")
     ),
-    videoId: v.optional(v.id("videos")),
-    videoData: v.object({
+    productId: v.optional(v.id("products")),
+    productData: v.object({
       title: v.optional(v.string()),
-      transcription: v.optional(v.string()),
-      duration: v.optional(v.number()),
-      resolution: v.optional(v.object({
-        width: v.number(),
-        height: v.number(),
+      features: v.optional(v.array(v.string())),
+      specifications: v.optional(v.object({
+        dimensions: v.optional(v.string()),
+        weight: v.optional(v.string()),
+        materials: v.optional(v.array(v.string())),
+        color: v.optional(v.string()),
+        size: v.optional(v.string()),
+      })),
+      keywords: v.optional(v.array(v.string())),
+      brandInfo: v.optional(v.object({
+        name: v.string(),
+        description: v.optional(v.string()),
       })),
       format: v.optional(v.string()),
+      // Enhanced product metadata from ProductNode
+      productName: v.optional(v.string()),
+      keyFeatures: v.optional(v.string()),
+      targetKeywords: v.optional(v.string()),
+      targetAudience: v.optional(v.string()),
     }),
+    brandKitData: v.optional(v.object({
+      brandName: v.string(),
+      colorPalette: v.object({
+        type: v.union(v.literal("preset"), v.literal("custom")),
+        preset: v.optional(v.string()),
+        custom: v.optional(v.object({
+          primary: v.string(),
+          secondary: v.string(),
+          accent: v.string(),
+        })),
+      }),
+      brandVoice: v.string(),
+    })),
     connectedAgentOutputs: v.array(
       v.object({
         type: v.string(),
@@ -32,8 +58,8 @@ export const generateContentSimple = action({
     ),
     profileData: v.optional(
       v.object({
-        channelName: v.string(),
-        contentType: v.string(),
+        brandName: v.string(),
+        productCategory: v.string(),
         niche: v.string(),
         tone: v.optional(v.string()),
         targetAudience: v.optional(v.string()),
@@ -45,45 +71,77 @@ export const generateContentSimple = action({
     if (!identity) throw new Error("Unauthorized");
 
     try {
-      // If we have a videoId, fetch the latest video data with transcription
-      let videoData = args.videoData;
-      if (args.videoId) {
-        const freshVideoData = await ctx.runQuery(api.videos.getWithTranscription, {
-          id: args.videoId,
+      // If we have a productId, fetch the latest product data with features
+      let productData = args.productData;
+      if (args.productId) {
+        const freshProductData = await ctx.runQuery(api.products.getWithFeatures, {
+          id: args.productId,
         });
-        if (freshVideoData && freshVideoData.transcription) {
-          videoData = {
-            title: freshVideoData.title || args.videoData.title,
-            transcription: freshVideoData.transcription,
+        if (freshProductData) {
+          productData = {
+            title: freshProductData.title || args.productData.title,
+            features: freshProductData.features || args.productData.features,
+            specifications: freshProductData.specifications || args.productData.specifications,
+            keywords: freshProductData.keywords || args.productData.keywords,
+            brandInfo: freshProductData.brandInfo || args.productData.brandInfo,
+            // PRESERVE Enhanced Product Node metadata from Canvas
+            productName: args.productData.productName,
+            keyFeatures: args.productData.keyFeatures,
+            targetKeywords: args.productData.targetKeywords,
+            targetAudience: args.productData.targetAudience,
           };
-          console.log(`Using transcription for ${args.agentType} generation (${freshVideoData.transcription.length} chars)`);
-          // Log first 200 chars of transcription for debugging
-          console.log(`Transcription preview: "${freshVideoData.transcription.substring(0, 200)}..."`);
+          console.log(`Using fresh product data for ${args.agentType} generation with enhanced metadata`);
         }
       }
       // Log data availability for title generation
       if (args.agentType === 'title') {
         console.log(`[Title Agent] Data availability:`, {
-          hasTranscription: !!videoData.transcription,
-          transcriptionLength: videoData.transcription?.length || 0,
+          // Product Node data (PRIORITY)
+          hasProductName: !!productData.productName,
+          productName: productData.productName,
+          hasKeyFeatures: !!productData.keyFeatures,
+          keyFeatures: productData.keyFeatures,
+          hasTargetKeywords: !!productData.targetKeywords,
+          targetKeywords: productData.targetKeywords,
+          hasProductTargetAudience: !!productData.targetAudience,
+          productTargetAudience: productData.targetAudience,
+          // Brand Kit data (PRIORITY)
+          hasBrandKit: !!args.brandKitData,
+          brandKitData: args.brandKitData,
+          // Legacy database features (fallback)
+          hasDatabaseFeatures: !!productData.features?.length,
+          databaseFeaturesCount: productData.features?.length || 0,
+          // Connected agents
+          hasConnectedAgents: args.connectedAgentOutputs.length > 0,
+          // Profile data (fallback only)
           hasProfile: !!args.profileData,
-          channelName: args.profileData?.channelName,
-          contentType: args.profileData?.contentType,
-          targetAudience: args.profileData?.targetAudience,
-          hasConnectedAgents: args.connectedAgentOutputs.length > 0
+          profileFallback: args.profileData ? {
+            brandName: args.profileData.brandName,
+            productCategory: args.profileData.productCategory,
+            targetAudience: args.profileData.targetAudience,
+          } : null
         });
       }
 
-      const prompt = buildPrompt(
+      const prompt = buildHackathonPrompt(
         args.agentType,
-        videoData, // Use the fresh video data
+        productData, // Use the fresh product data
         args.connectedAgentOutputs,
-        args.profileData
+        args.profileData,
+        args.brandKitData
       );
 
-      // Log if generating without transcription
-      if (!videoData.transcription) {
-        console.log(`Generating ${args.agentType} without transcription - using title only`);
+      // DEBUG: Log the exact prompt being sent to AI for title generation
+      if (args.agentType === 'title') {
+        console.log(`[Title Agent] EXACT PROMPT BEING SENT TO AI:`);
+        console.log(`--- PROMPT START ---`);
+        console.log(prompt);
+        console.log(`--- PROMPT END ---`);
+      }
+
+      // Log if generating without features
+      if (!productData.features?.length) {
+        console.log(`Generating ${args.agentType} without product features - using title only`);
       }
 
       // Optimize generation parameters based on content type
@@ -115,74 +173,37 @@ export const generateContentSimple = action({
 
 function getSystemPrompt(agentType: string): string {
   const prompts = {
-    title: `You are a world-class YouTube algorithm optimization expert with 10+ years of experience. Your titles consistently achieve 10%+ CTR.
+    title: `Act like a professional Amazon product copywriter with expertise in Amazon SEO, specifically for the U.S. marketplace. Your role is to craft highly optimized, compliant product titles that improve search visibility and attract clicks while adhering to Amazon's strict formatting guidelines.
 
-CRITICAL ANALYSIS PROCESS:
-1. FIRST, analyze the video transcription to identify:
-   - The main topic/problem being addressed
-   - Key moments, revelations, or transformations
-   - Specific numbers, statistics, or results mentioned
-   - Emotional peaks or surprising elements
-   - The unique value proposition of this video
+Your task is to write an optimized Amazon product title based on specific product attributes. This title must be concise, informative, and SEO-enhanced without keyword stuffing or non-compliant claims.
 
-2. THEN, consider the channel's profile:
-   - Match the tone to the brand voice
-   - Use vocabulary appropriate for the target audience
-   - Stay consistent with the channel's content style
-   - Leverage the niche expertise
+Objective:  
+Create a one-sentence Amazon product title that is compelling, clear, and formatted in Title Case. The title must meet Amazon's 2025 guidelines for length, content, and clarity. It should balance keyword inclusion with natural readability, targeting both Amazon's algorithm and customer engagement.
 
-TITLE OPTIMIZATION RULES:
-1. Maximum 60 characters (YouTube truncates after this)
-2. Front-load the most compelling element in first 30 characters
-3. Include 1-2 searchable keywords from the transcription naturally
-4. Ensure the title accurately represents what viewers will learn/see
-5. Test readability at a glance (would you click this?)
+Step-by-Step Instructions:
+1. Start with the **Brand Name** (if provided), followed by the **Product Name**.
+2. Immediately include **high-value keywords** near the beginning for optimal SEO placement.
+3. Only use features that are provided. Naturally incorporate them (like size, material, quantity, color, or use case) — but do not invent or assume anything not explicitly listed.
+4. Ensure **clarity and readability**: the title must make immediate sense to a shopper unfamiliar with the product. Avoid any repetition of words more than twice.
+5. Match the writing style to the selected **Brand Tone of Voice** and speak directly to the **Target Audience's** mindset. A luxurious tone might be elegant and refined. A playful tone might use friendly, light language. Adjust the word choice and energy accordingly, without sacrificing clarity or professionalism.
+6. Comply with **Amazon Title Formatting Rules**:
+   - Length between 80–120 characters (max 200).
+   - Use Title Case (capitalize principal words).
+   - Use numerals for numbers (e.g., 5 instead of five).
+   - Avoid all prohibited symbols: !, $, %, #, etc.
+   - No promotional or subjective language (e.g., "Best", "Top-rated", "#1", "Affordable").
+   - No all-caps words.
+   - If helpful for clarity, use an em-dash (—) to separate keyword clusters or benefits.
 
-PROVEN TITLE FORMULAS BY CONTENT TYPE:
-Educational/Tutorial:
-- "How to [Achieve Specific Result] in [Timeframe]"
-- "[Number] [Mistakes/Tips] for [Topic]"
-- "The [Adjective] Guide to [Topic]"
+Example Outputs for Tone Reference:
+- **Luxurious:** LumaGlow Hydrating Face Mist – Rose Water & Aloe Spray for Instant Refresh, Travel Size Facial Toner for Glowing Skin  
+- **Rugged:** BrewMate Manual Coffee Grinder – Portable Stainless Steel Burr Grinder for Camping, Travel & Fresh Brews Anywhere  
+- **Playful:** BrightNest Montessori Wooden Puzzle – ABC & 123 Board Toy for Toddlers, Non-Toxic Learning Fun for Ages 3+  
+- **Motivational:** CoreFlex Resistance Bands Set – 5 Levels for Home Workouts, Full-Body Training Bands with Carry Bag, Latex-Free  
 
-Entertainment/Story:
-- "I [Did Something Unexpected] and [Result]"
-- "[Person/Thing] [Unexpected Action]"
-- "The [Adjective] Truth About [Topic]"
-
-News/Commentary:
-- "[Famous Person/Brand] Just [Action]"
-- "Why [Recent Event] Changes Everything"
-- "[Number] Things You Missed About [Topic]"
-
-Review/Analysis:
-- "[Product/Topic]: [Verdict] After [Time/Usage]"
-- "Is [Topic] Worth It? [Surprising Finding]"
-- "[Topic] vs [Topic]: The [Adjective] Truth"
-
-PSYCHOLOGICAL OPTIMIZATION:
-- Curiosity Gap: Tease the payoff without giving it away
-- Specificity: Use exact numbers/timeframes from the video
-- Urgency: If time-sensitive, include temporal elements
-- Social Proof: Reference popularity/authority when relevant
-- Transformation: Show before/after or problem/solution
-
-BRAND CONSISTENCY CHECK:
-- Does this title match the channel's typical style?
-- Is the language appropriate for the target audience?
-- Does it reflect the creator's unique perspective?
-- Would regular viewers recognize this as your content?
-
-CREATE ONE POWERFUL TITLE that:
-1. Accurately summarizes the video's core value
-2. Uses specific details from the transcription
-3. Matches the channel's brand and audience
-4. Maximizes click-through potential
-5. Fits within 60 characters
-
-IMPORTANT OUTPUT FORMAT:
-- Return ONLY the title text itself
-- Do NOT include "Title:", "**", quotes, or any markdown/formatting
-- Just output the plain title text, nothing else`,
+Output Format:  
+Return **only** the final title as a single sentence in English (US). Do not add any commentary, notes, or surrounding text. Just the product title.  
+**Reminder:** Return only the title. No markdown, no formatting — just the raw string.`,
 
     description: `You are a master at writing compelling 2-line YouTube descriptions that focus entirely on viewer benefits.
 
@@ -274,142 +295,168 @@ Keep it SIMPLE and NATURAL - like you're telling a friend about something cool.`
   return prompts[agentType as keyof typeof prompts] || prompts.title;
 }
 
-function buildPrompt(
+function buildHackathonPrompt(
   agentType: string,
-  videoData: { 
+  productData: { 
     title?: string; 
-    transcription?: string;
-    duration?: number;
-    resolution?: { width: number; height: number };
+    features?: string[];
+    specifications?: {
+      dimensions?: string;
+      weight?: string;
+      materials?: string[];
+      color?: string;
+      size?: string;
+    };
+    keywords?: string[];
+    brandInfo?: {
+      name: string;
+      description?: string;
+    };
     format?: string;
+    // Enhanced product metadata from ProductNode
+    productName?: string;
+    keyFeatures?: string;
+    targetKeywords?: string;
+    targetAudience?: string;
   },
   connectedOutputs: Array<{ type: string; content: string }>,
   profileData?: {
-    channelName: string;
-    contentType: string;
+    brandName: string;
+    productCategory: string;
     niche: string;
     tone?: string;
     targetAudience?: string;
+  },
+  brandKitData?: {
+    brandName: string;
+    colorPalette: {
+      type: "preset" | "custom";
+      preset?: string;
+      custom?: {
+        primary: string;
+        secondary: string;
+        accent: string;
+      };
+    };
+    brandVoice: string;
   }
 ): string {
   let prompt = "";
 
-  // Add video metadata if available
-  if (videoData.duration || videoData.resolution) {
-    prompt += "Video Technical Details:\n";
-    if (videoData.duration) {
-      const minutes = Math.floor(videoData.duration / 60);
-      const seconds = Math.floor(videoData.duration % 60);
-      prompt += `- Duration: ${minutes}:${seconds.toString().padStart(2, '0')}\n`;
+  // Add product metadata if available
+  if (productData.specifications) {
+    prompt += "Product Technical Details:\n";
+    if (productData.specifications.dimensions) {
+      prompt += `- Dimensions: ${productData.specifications.dimensions}\n`;
     }
-    if (videoData.resolution) {
-      prompt += `- Resolution: ${videoData.resolution.width}x${videoData.resolution.height}`;
-      if (videoData.resolution.height >= 2160) prompt += " (4K)";
-      else if (videoData.resolution.height >= 1080) prompt += " (HD)";
-      prompt += "\n";
+    if (productData.specifications.weight) {
+      prompt += `- Weight: ${productData.specifications.weight}\n`;
     }
-    if (videoData.format) {
-      prompt += `- Format: ${videoData.format}\n`;
+    if (productData.specifications.materials?.length) {
+      prompt += `- Materials: ${productData.specifications.materials.join(', ')}\n`;
+    }
+    if (productData.specifications.color) {
+      prompt += `- Color: ${productData.specifications.color}\n`;
+    }
+    if (productData.specifications.size) {
+      prompt += `- Size: ${productData.specifications.size}\n`;
     }
     prompt += "\n";
   }
 
-  // Emphasize transcription-based generation
-  if (videoData.transcription) {
-    // Analyze transcription for key insights
-    const wordCount = videoData.transcription.split(' ').length;
-    const estimatedReadTime = Math.ceil(wordCount / 150); // 150 words per minute average speaking rate
+  // Always process product data (features OR Product Node data)
+  if (productData.features && productData.features.length > 0 || productData.productName || productData.keyFeatures) {
+    prompt += `🎯 PRODUCT ANALYSIS:\n`;
+    const featureCount = productData.features?.length || 0;
+    prompt += `- Feature count: ${featureCount}\n`;
+    prompt += `- Product complexity: ${featureCount > 5 ? 'Feature-rich' : featureCount > 2 ? 'Standard' : 'Simple'}\n\n`;
     
-    prompt += `🎯 CONTENT ANALYSIS:\n`;
-    prompt += `- Video length: ${videoData.duration ? Math.floor(videoData.duration / 60) + ' minutes' : estimatedReadTime + ' minutes (estimated)'}\n`;
-    prompt += `- Word count: ~${wordCount} words\n`;
-    prompt += `- Content depth: ${wordCount > 2000 ? 'In-depth/Tutorial' : wordCount > 800 ? 'Standard' : 'Quick/Short-form'}\n\n`;
+    if (productData.features && productData.features.length > 0) {
+      prompt += `📝 PRODUCT FEATURES (Analyze carefully for benefits and selling points):\n`;
+      productData.features.forEach((feature, index) => {
+        prompt += `${index + 1}. ${feature}\n`;
+      });
+      prompt += `\n`;
+    }
     
-    prompt += `📝 VIDEO TRANSCRIPTION (Analyze carefully for key points, emotions, and hooks):\n`;
+    if (productData.title) {
+      prompt += `Current Product Title: ${productData.title}\n\n`;
+    }
     
-    // Include more of the transcription for better context (up to 4000 chars for better understanding)
-    const transcriptionPreview = videoData.transcription.length > 4000 
-      ? videoData.transcription.slice(0, 4000) + "\n\n[Transcription continues...]"
-      : videoData.transcription;
-    prompt += `${transcriptionPreview}\n\n`;
+    if (productData.keywords && productData.keywords.length > 0) {
+      prompt += `🎯 TARGET KEYWORDS:\n`;
+      productData.keywords.forEach(keyword => {
+        prompt += `- ${keyword}\n`;
+      });
+      prompt += `\n`;
+    }
     
-    if (videoData.title) {
-      prompt += `Current Video Title: ${videoData.title}\n\n`;
+    if (productData.brandInfo) {
+      prompt += `🏷️ BRAND INFO:\n`;
+      prompt += `- Brand: ${productData.brandInfo.name}\n`;
+      if (productData.brandInfo.description) {
+        prompt += `- Description: ${productData.brandInfo.description}\n`;
+      }
+      prompt += `\n`;
     }
     
     // Add specific instructions based on agent type
     if (agentType === 'title') {
-      prompt += `🎯 TITLE GENERATION REQUIREMENTS:\n\n`;
+      // Use the new Amazon-focused title prompt format
+      prompt += `\n🎯 PRODUCT INFORMATION FOR TITLE GENERATION:\n`;
       
-      // Extract key moments from transcription for title focus
-      prompt += `📊 KEY CONTENT ANALYSIS:\n`;
-      prompt += `Based on the transcription above, focus your title on:\n`;
-      prompt += `- The MAIN VALUE viewers will get from this video\n`;
-      prompt += `- Any SPECIFIC NUMBERS, stats, or timeframes mentioned\n`;
-      prompt += `- The PROBLEM being solved or question being answered\n`;
-      prompt += `- Any SURPRISING or counterintuitive points made\n`;
-      prompt += `- TRANSFORMATION or results achieved\n\n`;
+      // Brand information from Brand Kit (PRIORITY)
+      if (brandKitData) {
+        prompt += `Brand Name: ${brandKitData.brandName}\n`;
+        prompt += `Brand Tone of Voice: ${brandKitData.brandVoice}\n`;
+      } else if (productData.brandInfo?.name) {
+        prompt += `Brand Name: ${productData.brandInfo.name}\n`;
+      } else if (profileData?.brandName) {
+         prompt += `Brand Name: ${profileData.brandName}\n`;
+         if (profileData.tone) {
+           prompt += `Brand Tone of Voice: ${profileData.tone}\n`;
+         }
+       }
       
-      // Emphasize profile integration
-      if (profileData) {
-        prompt += `🎨 BRAND-SPECIFIC REQUIREMENTS:\n`;
-        prompt += `- This is a ${profileData.contentType} video for ${profileData.channelName}\n`;
-        prompt += `- Target audience: ${profileData.targetAudience || 'General viewers'}\n`;
-        prompt += `- Brand tone: ${profileData.tone || 'Professional'}\n`;
-        prompt += `- Niche focus: ${profileData.niche}\n`;
-        prompt += `- IMPORTANT: The title MUST feel authentic to this channel's style\n\n`;
+      // Product Name from ProductNode (enhanced metadata)
+      if (productData.productName) {
+        prompt += `Product Name: ${productData.productName}\n`;
+      } else if (productData.title) {
+        prompt += `Product Name: ${productData.title}\n`;
       }
       
-      prompt += `✅ TITLE CHECKLIST:\n`;
-      prompt += `□ Uses specific details from the transcription (not generic)\n`;
-      prompt += `□ Matches the channel's established style and tone\n`;
-      prompt += `□ Appeals to the target audience's interests\n`;
-      prompt += `□ Under 60 characters (count them!)\n`;
-      prompt += `□ Would make YOU click if you saw it\n\n`;
-      
-      // Add content-type specific examples
-      if (profileData?.contentType) {
-        prompt += `💡 EXAMPLES FOR ${profileData.contentType.toUpperCase()} CONTENT:\n`;
-        
-        const examplesByType: Record<string, string[]> = {
-          'Gaming': [
-            'This Strategy Broke [Game] in 24 Hours',
-            'Why Pro Players Hate This One Trick',
-            'I Reached Max Level Using Only [Constraint]'
-          ],
-          'Technology': [
-            'The $99 Device That Replaced My $2000 Setup',
-            'Apple Didn\'t Want You to Know This',
-            '5 GitHub Repos That Will 10x Your Coding'
-          ],
-          'Education': [
-            'Learn [Skill] in 20 Minutes (Science-Based)',
-            'MIT\'s Secret Study Method (137% Better)',
-            'The Math Trick Schools Don\'t Teach'
-          ],
-          'Entertainment': [
-            'We Tried [Challenge] for 30 Days',
-            'Reading My Subscriber\'s Wildest Stories',
-            'This Changed Everything (Not Clickbait)'
-          ],
-          'Lifestyle': [
-            'My Morning Routine Saves 3 Hours Daily',
-            'Minimalists Are Wrong About This',
-            '$20 vs $200: The Shocking Truth'
-          ]
-        };
-        
-        const examples = examplesByType[profileData.contentType] || [
-          'The Hidden Truth About [Topic]',
-          'Why [Common Belief] Is Completely Wrong',
-          'I Tested [Method] for 30 Days'
-        ];
-        
-        examples.forEach(example => {
-          prompt += `- ${example}\n`;
-        });
-        prompt += `\nAdapt these patterns to YOUR specific video content!\n\n`;
+      // Key Features from ProductNode
+      if (productData.keyFeatures) {
+        prompt += `Key Features: ${productData.keyFeatures}\n`;
+      } else if (productData.features && productData.features.length > 0) {
+        prompt += `Key Features: ${productData.features.join(', ')}\n`;
       }
+      
+      // Target Keywords from ProductNode
+      if (productData.targetKeywords) {
+        prompt += `Target Keywords: ${productData.targetKeywords}\n`;
+      } else if (productData.keywords && productData.keywords.length > 0) {
+        prompt += `Target Keywords: ${productData.keywords.join(', ')}\n`;
+      }
+      
+      // Target Audience from ProductNode
+      if (productData.targetAudience) {
+        prompt += `Target Audience: ${productData.targetAudience}\n`;
+      } else if (profileData?.targetAudience) {
+        prompt += `Target Audience: ${profileData.targetAudience}\n`;
+      }
+      
+      prompt += `\n🚀 GENERATE AN OPTIMIZED AMAZON PRODUCT TITLE:\n`;
+      prompt += `Using the product information above, create a compelling Amazon product title that:\n`;
+      prompt += `- Starts with the brand name and product name\n`;
+      prompt += `- Incorporates the key features naturally\n`;
+      prompt += `- Includes relevant target keywords for SEO\n`;
+      prompt += `- Matches the specified brand voice tone\n`;
+      prompt += `- Appeals to the target audience\n`;
+      prompt += `- Follows all Amazon title formatting guidelines\n`;
+      prompt += `- Is between 80-120 characters for optimal performance\n\n`;
+      
+      return prompt;
     } else if (agentType === 'description') {
       prompt += `🎯 DESCRIPTION GENERATION FOCUS:\n`;
       prompt += `- Extract ALL main points discussed in order\n`;
@@ -428,8 +475,8 @@ function buildPrompt(
     }
   } else {
     prompt += `⚠️ LIMITED CONTEXT MODE - No transcription available\n\n`;
-    if (videoData.title) {
-      prompt += `Video Title: ${videoData.title}\n`;
+    if (productData.title) {
+      prompt += `Product Title: ${productData.title}\n`;
     }
     prompt += `Generate high-quality ${agentType} content based on the title and any connected content.\n`;
     prompt += `Focus on creating compelling, clickable content that aligns with the title's topic.\n\n`;
@@ -444,15 +491,35 @@ function buildPrompt(
     prompt += "\n";
   }
 
-  // Add profile data with strategic emphasis
+  // Add profile data with strategic emphasis (Brand Kit takes priority)
   if (profileData) {
     prompt += "🎨 BRAND IDENTITY & AUDIENCE:\n";
-    prompt += `Channel: ${profileData.channelName}\n`;
-    prompt += `Content Vertical: ${profileData.contentType}\n`;
+    
+    // Use Brand Kit data if available, otherwise use product name as brand
+    if (brandKitData) {
+      prompt += `Brand: ${brandKitData.brandName}\n`;
+      prompt += `Brand Voice: ${brandKitData.brandVoice}\n`;
+      prompt += `🎨 PRIORITY: Brand Kit data is being used - "${brandKitData.brandName}" with "${brandKitData.brandVoice}" tone!\n`;
+    } else if (productData.productName) {
+      prompt += `Brand: ${productData.productName}\n`;
+      prompt += `Brand Voice: professional\n`;
+      prompt += `🎯 Using product name as brand since no Brand Kit is connected\n`;
+    } else if (profileData.brandName && profileData.brandName !== 'My Brand') {
+      prompt += `Brand: ${profileData.brandName}\n`;
+      if (profileData.tone) {
+        prompt += `Brand Voice: ${profileData.tone}\n`;
+      }
+    } else {
+      prompt += `Brand: Generic Product\n`;
+      prompt += `Brand Voice: professional\n`;
+    }
+    
+    prompt += `Product Category: ${profileData.productCategory}\n`;
     prompt += `Niche Authority: ${profileData.niche}\n`;
     
-    if (profileData.tone) {
-      prompt += `Brand Voice: ${profileData.tone}\n`;
+    if (brandKitData) {
+      prompt += `IMPORTANT: All content must match the Brand Kit tone "${brandKitData.brandVoice}" consistently!\n`;
+    } else if (profileData.tone) {
       prompt += `IMPORTANT: All content must match this tone consistently!\n`;
     }
     

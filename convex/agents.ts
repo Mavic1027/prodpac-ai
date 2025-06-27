@@ -3,12 +3,13 @@ import { mutation, query } from "./_generated/server";
 
 export const create = mutation({
   args: {
-    videoId: v.id("videos"),
+    productId: v.id("products"),
     type: v.union(
       v.literal("title"),
-      v.literal("description"),
-      v.literal("thumbnail"),
-      v.literal("tweets")
+      v.literal("bullet-points"),
+      v.literal("hero-image"),
+      v.literal("lifestyle-image"),
+      v.literal("infographic")
     ),
     canvasPosition: v.object({
       x: v.number(),
@@ -20,20 +21,20 @@ export const create = mutation({
     if (!identity) throw new Error("Unauthorized");
     const userId = identity.subject;
 
-    // Verify video exists and belongs to user
-    const video = await ctx.db.get(args.videoId);
-    if (!video || video.userId !== userId) {
-      throw new Error("Video not found or unauthorized");
+    // Verify product exists and belongs to user
+    const product = await ctx.db.get(args.productId);
+    if (!product || product.userId !== userId) {
+      throw new Error("Product not found or unauthorized");
     }
 
-    if (!video.projectId) {
-      throw new Error("Video must belong to a project");
+    if (!product.projectId) {
+      throw new Error("Product must belong to a project");
     }
 
     return await ctx.db.insert("agents", {
-      videoId: args.videoId,
+      productId: args.productId,
       userId,
-      projectId: video.projectId,
+      projectId: product.projectId,
       type: args.type,
       draft: "",
       connections: [],
@@ -55,8 +56,8 @@ export const updateDraft = mutation({
       v.literal("ready"),
       v.literal("error")
     )),
-    thumbnailUrl: v.optional(v.string()),
-    thumbnailStorageId: v.optional(v.id("_storage")),
+    imageUrl: v.optional(v.string()),
+    imageStorageId: v.optional(v.id("_storage")),
   },
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
@@ -73,12 +74,12 @@ export const updateDraft = mutation({
       status: args.status || "ready",
     };
     
-    if (args.thumbnailUrl !== undefined) {
-      updateData.thumbnailUrl = args.thumbnailUrl;
+    if (args.imageUrl !== undefined) {
+      updateData.imageUrl = args.imageUrl;
     }
     
-    if (args.thumbnailStorageId !== undefined) {
-      updateData.thumbnailStorageId = args.thumbnailStorageId;
+    if (args.imageStorageId !== undefined) {
+      updateData.imageStorageId = args.imageStorageId;
     }
 
     await ctx.db.patch(args.id, updateData);
@@ -152,8 +153,8 @@ export const updatePosition = mutation({
   },
 });
 
-export const getByVideo = query({
-  args: { videoId: v.id("videos") },
+export const getByProduct = query({
+  args: { productId: v.id("products") },
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) return [];
@@ -161,7 +162,7 @@ export const getByVideo = query({
 
     return await ctx.db
       .query("agents")
-      .withIndex("by_video", (q) => q.eq("videoId", args.videoId))
+      .withIndex("by_product", (q) => q.eq("productId", args.productId))
       .filter((q) => q.eq(q.field("userId"), userId))
       .collect();
   },

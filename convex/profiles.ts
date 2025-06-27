@@ -16,8 +16,8 @@ export const get = query({
 
 export const upsert = mutation({
   args: {
-    channelName: v.string(),
-    contentType: v.string(),
+    brandName: v.string(),
+    productCategory: v.string(),
     niche: v.string(),
     links: v.array(v.string()),
     tone: v.optional(v.string()),

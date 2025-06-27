@@ -9,6 +9,31 @@ export default defineSchema({
     tokenIdentifier: v.string(),
   }).index("by_token", ["tokenIdentifier"]),
 
+  // Brand Kits - saved brand presets for users
+  brandKits: defineTable({
+    userId: v.string(),
+    name: v.string(), // Brand name
+    colorPalette: v.object({
+      type: v.union(v.literal("preset"), v.literal("custom")),
+      preset: v.optional(v.union(
+        v.literal("professional-blue"),
+        v.literal("warm-earth"),
+        v.literal("bold-modern")
+      )),
+      custom: v.optional(v.object({
+        primary: v.string(), // Hex color
+        secondary: v.string(), // Hex color
+        accent: v.string(), // Hex color
+      })),
+    }),
+    brandVoice: v.string(), // Same options as products
+    isDefault: v.optional(v.boolean()), // User's default brand kit
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_user", ["userId"])
+    .index("by_user_default", ["userId", "isDefault"]),
+
   projects: defineTable({
     userId: v.string(),
     title: v.string(),
@@ -22,64 +47,106 @@ export default defineSchema({
     .index("by_updated", ["updatedAt"])
     .index("by_user_archived", ["userId", "isArchived"]),
 
-  videos: defineTable({
+  // Brand Kit Nodes on Canvas
+  canvasBrandKits: defineTable({
     userId: v.string(),
-    projectId: v.optional(v.id("projects")),
-    title: v.optional(v.string()),
-    videoUrl: v.optional(v.string()),
-    fileId: v.optional(v.string()),
-    storageId: v.optional(v.id("_storage")), // Convex storage ID
-    transcription: v.optional(v.string()),
+    projectId: v.id("projects"),
+    brandKitId: v.optional(v.id("brandKits")), // Reference to saved brand kit
+    // Direct brand settings (can override saved brand kit)
+    brandName: v.string(),
+    colorPalette: v.object({
+      type: v.union(v.literal("preset"), v.literal("custom")),
+      preset: v.optional(v.union(
+        v.literal("professional-blue"),
+        v.literal("warm-earth"),
+        v.literal("bold-modern")
+      )),
+      custom: v.optional(v.object({
+        primary: v.string(), // Hex color
+        secondary: v.string(), // Hex color
+        accent: v.string(), // Hex color
+      })),
+    }),
+    brandVoice: v.string(),
     canvasPosition: v.object({
       x: v.number(),
       y: v.number(),
     }),
-    // Video metadata fields
-    duration: v.optional(v.number()), // Duration in seconds
+    createdAt: v.number(),
+  })
+    .index("by_user", ["userId"])
+    .index("by_project", ["projectId"])
+    .index("by_brand_kit", ["brandKitId"]),
+
+  products: defineTable({
+    userId: v.string(),
+    projectId: v.optional(v.id("projects")),
+    title: v.optional(v.string()),
+    asin: v.optional(v.string()), // Amazon ASIN
+    productImages: v.optional(v.array(v.object({
+      url: v.string(),
+      storageId: v.optional(v.id("_storage")),
+      type: v.union(v.literal("main"), v.literal("angle"), v.literal("detail")), // Image type
+    }))),
+    fileId: v.optional(v.string()), // Keep for backward compatibility
+    storageId: v.optional(v.id("_storage")), // Keep for backward compatibility
+    
+    // Product Info Form Fields
+    productName: v.optional(v.string()), // Main product name
+    keyFeatures: v.optional(v.string()), // Textarea content as string
+    targetKeywords: v.optional(v.string()), // Comma-separated keywords
+    targetAudience: v.optional(v.string()), // Dropdown selection
+    customTargetAudience: v.optional(v.string()), // Custom audience when "Custom" is selected
+    productCategory: v.optional(v.string()), // Product category
+    // brandVoice moved to Brand Kit - remove from here for new workflow
+    
+    // Legacy fields (keeping for compatibility)
+    features: v.optional(v.array(v.string())), // Product features list
+    specifications: v.optional(v.object({
+      dimensions: v.optional(v.string()),
+      weight: v.optional(v.string()),
+      materials: v.optional(v.array(v.string())),
+      color: v.optional(v.string()),
+      size: v.optional(v.string()),
+    })),
+    keywords: v.optional(v.array(v.string())), // Target keywords
+    brandInfo: v.optional(v.object({
+      name: v.string(),
+      description: v.optional(v.string()),
+    })),
+    canvasPosition: v.object({
+      x: v.number(),
+      y: v.number(),
+    }),
+    // Keep some original fields for compatibility
     fileSize: v.optional(v.number()), // Size in bytes
     resolution: v.optional(v.object({
       width: v.number(),
       height: v.number(),
     })),
-    frameRate: v.optional(v.number()), // FPS
-    bitRate: v.optional(v.number()), // Bits per second
-    format: v.optional(v.string()), // Video format/container
-    codec: v.optional(v.string()), // Video codec
-    audioInfo: v.optional(v.object({
-      codec: v.string(),
-      sampleRate: v.number(),
-      channels: v.number(),
-      bitRate: v.number(),
-    })),
+    format: v.optional(v.string()), // Image format
     metadata: v.optional(v.any()), // Additional metadata
-    // Transcription status tracking
-    transcriptionStatus: v.optional(v.union(
-      v.literal("idle"),
-      v.literal("processing"),
-      v.literal("completed"),
-      v.literal("failed")
-    )),
-    transcriptionError: v.optional(v.string()),
-    transcriptionProgress: v.optional(v.string()),
     createdAt: v.number(),
   })
     .index("by_user", ["userId"])
     .index("by_project", ["projectId"])
-    .index("by_created", ["createdAt"]),
+    .index("by_created", ["createdAt"])
+    .index("by_asin", ["asin"]),
 
   agents: defineTable({
-    videoId: v.id("videos"),
+    productId: v.id("products"), // Changed from videoId
     userId: v.string(),
     projectId: v.optional(v.id("projects")),
     type: v.union(
       v.literal("title"),
-      v.literal("description"),
-      v.literal("thumbnail"),
-      v.literal("tweets")
+      v.literal("bullet-points"), // Renamed from "description"
+      v.literal("hero-image"),    // Renamed from "thumbnail"
+      v.literal("lifestyle-image"), // Renamed from "tweets"
+      v.literal("infographic")    // New agent type
     ),
     draft: v.string(),
-    thumbnailUrl: v.optional(v.string()),
-    thumbnailStorageId: v.optional(v.id("_storage")),
+    imageUrl: v.optional(v.string()), // Renamed from thumbnailUrl
+    imageStorageId: v.optional(v.id("_storage")), // Renamed from thumbnailStorageId
     connections: v.array(v.string()),
     chatHistory: v.array(
       v.object({
@@ -100,19 +167,20 @@ export default defineSchema({
     ),
     createdAt: v.number(),
   })
-    .index("by_video", ["videoId"])
+    .index("by_product", ["productId"]) // Changed from "by_video"
     .index("by_user", ["userId"])
     .index("by_project", ["projectId"])
     .index("by_type", ["type"]),
 
   profiles: defineTable({
     userId: v.string(),
-    channelName: v.string(),
-    contentType: v.string(),
+    brandName: v.string(), // Changed from channelName
+    productCategory: v.string(), // Changed from contentType
     niche: v.string(),
     links: v.array(v.string()),
     tone: v.optional(v.string()),
     targetAudience: v.optional(v.string()),
+    sellerType: v.optional(v.string()), // e.g., "FBA", "FBM", "Private Label"
     createdAt: v.number(),
     updatedAt: v.number(),
   })

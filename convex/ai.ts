@@ -7,20 +7,50 @@ import { generateText } from "ai";
 export const generateContent = action({
   args: {
     agentId: v.id("agents"),
-    videoData: v.object({
+    productData: v.optional(v.object({
       title: v.optional(v.string()),
-      transcription: v.optional(v.string()),
-    }),
-    connectedAgentOutputs: v.array(
+      features: v.optional(v.array(v.string())),
+      specifications: v.optional(v.object({
+        dimensions: v.optional(v.string()),
+        weight: v.optional(v.string()),
+        materials: v.optional(v.array(v.string())),
+        color: v.optional(v.string()),
+        size: v.optional(v.string()),
+      })),
+      keywords: v.optional(v.array(v.string())),
+      brandInfo: v.optional(v.object({
+        name: v.string(),
+        description: v.optional(v.string()),
+      })),
+      // Enhanced product metadata from ProductNode
+      productName: v.optional(v.string()),
+      keyFeatures: v.optional(v.string()),
+      targetKeywords: v.optional(v.string()),
+      targetAudience: v.optional(v.string()),
+    })),
+    brandKitData: v.optional(v.object({
+      brandName: v.string(),
+      colorPalette: v.object({
+        type: v.union(v.literal("preset"), v.literal("custom")),
+        preset: v.optional(v.string()),
+        custom: v.optional(v.object({
+          primary: v.string(),
+          secondary: v.string(),
+          accent: v.string(),
+        })),
+      }),
+      brandVoice: v.string(),
+    })),
+    connectedAgentOutputs: v.optional(v.array(
       v.object({
         type: v.string(),
         content: v.string(),
       })
-    ),
+    )),
     profileData: v.optional(
       v.object({
-        channelName: v.string(),
-        contentType: v.string(),
+        brandName: v.string(),
+        productCategory: v.string(),
         niche: v.string(),
         tone: v.optional(v.string()),
         targetAudience: v.optional(v.string()),
@@ -31,23 +61,16 @@ export const generateContent = action({
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) throw new Error("Unauthorized");
 
-    // Get agent details
     const agent = await ctx.runQuery(api.agents.getById, { id: args.agentId });
     if (!agent) throw new Error("Agent not found");
-
-    // Update status to generating
-    await ctx.runMutation(api.agents.updateDraft, {
-      id: args.agentId,
-      draft: agent.draft,
-      status: "generating",
-    });
 
     try {
       const prompt = buildPrompt(
         agent.type,
-        args.videoData,
-        args.connectedAgentOutputs,
-        args.profileData
+        args.productData || {},
+        args.connectedAgentOutputs || [],
+        args.profileData,
+        args.brandKitData
       );
 
       const { text: generatedContent } = await generateText({
@@ -55,7 +78,7 @@ export const generateContent = action({
         system: getSystemPrompt(agent.type),
         prompt,
         temperature: 0.7,
-        maxTokens: agent.type === "description" ? 500 : 300,
+        maxTokens: agent.type === "bullet-points" ? 500 : 300,
       });
 
       // Update agent with generated content
@@ -83,9 +106,39 @@ export const refineContent = action({
     agentId: v.id("agents"),
     userMessage: v.string(),
     currentDraft: v.string(),
-    videoData: v.optional(v.object({
+    productData: v.optional(v.object({
       title: v.optional(v.string()),
-      transcription: v.optional(v.string()),
+      features: v.optional(v.array(v.string())),
+      specifications: v.optional(v.object({
+        dimensions: v.optional(v.string()),
+        weight: v.optional(v.string()),
+        materials: v.optional(v.array(v.string())),
+        color: v.optional(v.string()),
+        size: v.optional(v.string()),
+      })),
+      keywords: v.optional(v.array(v.string())),
+      brandInfo: v.optional(v.object({
+        name: v.string(),
+        description: v.optional(v.string()),
+      })),
+      // Enhanced product metadata from ProductNode
+      productName: v.optional(v.string()),
+      keyFeatures: v.optional(v.string()),
+      targetKeywords: v.optional(v.string()),
+      targetAudience: v.optional(v.string()),
+    })),
+    brandKitData: v.optional(v.object({
+      brandName: v.string(),
+      colorPalette: v.object({
+        type: v.union(v.literal("preset"), v.literal("custom")),
+        preset: v.optional(v.string()),
+        custom: v.optional(v.object({
+          primary: v.string(),
+          secondary: v.string(),
+          accent: v.string(),
+        })),
+      }),
+      brandVoice: v.string(),
     })),
     connectedAgentOutputs: v.optional(v.array(
       v.object({
@@ -95,8 +148,8 @@ export const refineContent = action({
     )),
     profileData: v.optional(
       v.object({
-        channelName: v.string(),
-        contentType: v.string(),
+        brandName: v.string(),
+        productCategory: v.string(),
         niche: v.string(),
         tone: v.optional(v.string()),
         targetAudience: v.optional(v.string()),
@@ -121,13 +174,16 @@ export const refineContent = action({
       // Build context with all available information
       let contextMessage = `Current draft: ${args.currentDraft}\n\n`;
       
-      if (args.videoData) {
-        contextMessage += "Video Context:\n";
-        if (args.videoData.title) {
-          contextMessage += `Title: ${args.videoData.title}\n`;
+      if (args.productData) {
+        contextMessage += "Product Context:\n";
+        if (args.productData.title) {
+          contextMessage += `Title: ${args.productData.title}\n`;
         }
-        if (args.videoData.transcription) {
-          contextMessage += `Transcription: ${args.videoData.transcription.slice(0, 1000)}...\n`;
+        if (args.productData.features && args.productData.features.length > 0) {
+          contextMessage += `Features: ${args.productData.features.join(', ')}\n`;
+        }
+        if (args.productData.keywords && args.productData.keywords.length > 0) {
+          contextMessage += `Keywords: ${args.productData.keywords.join(', ')}\n`;
         }
         contextMessage += "\n";
       }
@@ -141,9 +197,9 @@ export const refineContent = action({
       }
       
       if (args.profileData) {
-        contextMessage += "Channel Profile:\n";
-        contextMessage += `Channel: ${args.profileData.channelName} (${args.profileData.niche})\n`;
-        contextMessage += `Content Type: ${args.profileData.contentType}\n`;
+        contextMessage += "Brand Profile:\n";
+        contextMessage += `Brand: ${args.profileData.brandName} (${args.profileData.niche})\n`;
+        contextMessage += `Product Category: ${args.profileData.productCategory}\n`;
         if (args.profileData.tone) {
           contextMessage += `Tone: ${args.profileData.tone}\n`;
         }
@@ -166,7 +222,7 @@ export const refineContent = action({
           },
         ],
         temperature: 0.7,
-        maxTokens: agent.type === "description" ? 500 : 300,
+        maxTokens: agent.type === "bullet-points" ? 500 : 300,
       });
 
       // Update agent with refined content
@@ -193,10 +249,11 @@ export const refineContent = action({
 
 function getSystemPrompt(agentType: string): string {
   const prompts = {
-    title: "You are an expert YouTube title creator. Create engaging, SEO-friendly titles that maximize click-through rates while accurately representing the video content. Keep titles under 60 characters when possible.",
-    description: "You are an expert YouTube description writer. Create comprehensive, SEO-optimized descriptions that include relevant keywords, provide value to viewers, and encourage engagement. Include timestamps if applicable.",
-    thumbnail: "You are an expert YouTube thumbnail designer. Describe compelling thumbnail concepts that grab attention, clearly communicate the video's value, and follow YouTube best practices. Focus on visual elements, text overlay suggestions, and color schemes.",
-    tweets: "You are an expert social media marketer. Create engaging Twitter/X threads that promote YouTube videos. Write concise, engaging tweets that drive traffic to the video while providing value to the Twitter audience.",
+    title: "You are an expert Amazon listing title creator. Create compelling, SEO-optimized titles that maximize conversion rates while accurately representing the product. Keep titles under 200 characters and include relevant keywords.",
+    "bullet-points": "You are an expert Amazon listing bullet point writer. Create compelling bullet points that highlight key benefits and features. Focus on customer value and use action-oriented language.",
+    "hero-image": "You are an expert Amazon product photographer. Describe compelling hero image concepts that showcase the product professionally with clean white backgrounds and optimal positioning.",
+    "lifestyle-image": "You are an expert lifestyle photographer. Create engaging lifestyle image concepts that show the product in real-world use cases and demonstrate its value to customers.",
+    infographic: "You are an expert infographic designer. Create detailed concepts for product infographics that highlight key features, benefits, and specifications in a visually appealing way.",
   };
 
   return prompts[agentType as keyof typeof prompts] || prompts.title;
@@ -204,48 +261,161 @@ function getSystemPrompt(agentType: string): string {
 
 function buildPrompt(
   agentType: string,
-  videoData: { title?: string; transcription?: string },
+  productData: { 
+    title?: string; 
+    features?: string[];
+    specifications?: {
+      dimensions?: string;
+      weight?: string;
+      materials?: string[];
+      color?: string;
+      size?: string;
+    };
+    keywords?: string[];
+    brandInfo?: {
+      name: string;
+      description?: string;
+    };
+    // Enhanced product metadata from ProductNode
+    productName?: string;
+    keyFeatures?: string;
+    targetKeywords?: string;
+    targetAudience?: string;
+  },
   connectedOutputs: Array<{ type: string; content: string }>,
   profileData?: {
-    channelName: string;
-    contentType: string;
+    brandName: string;
+    productCategory: string;
     niche: string;
     tone?: string;
     targetAudience?: string;
+  },
+  brandKitData?: {
+    brandName: string;
+    colorPalette: {
+      type: "preset" | "custom";
+      preset?: string;
+      custom?: {
+        primary: string;
+        secondary: string;
+        accent: string;
+      };
+    };
+    brandVoice: string;
   }
-): string {
-  let prompt = `Generate ${agentType} content for a YouTube video.\n\n`;
+  ): string {
+  let promptText: string;
+  
+  // For title generation, use the structured prompt format
+  if (agentType === 'title') {
+    promptText = `Inputs (to be filled in dynamically):\n`;
+    
+    // Product Name from ProductNode (enhanced metadata)
+    if (productData.productName) {
+      promptText += `- Product Name: ${productData.productName}\n`;
+    } else if (productData.title) {
+      promptText += `- Product Name: ${productData.title}\n`;
+    }
+    
+    // Key Features from ProductNode
+    if (productData.keyFeatures) {
+      promptText += `- Key Features: ${productData.keyFeatures}\n`;
+    } else if (productData.features && productData.features.length > 0) {
+      promptText += `- Key Features: ${productData.features.join(', ')}\n`;
+    }
+    
+    // Target Keywords from ProductNode
+    if (productData.targetKeywords) {
+      promptText += `- Target Keywords: ${productData.targetKeywords}\n`;
+    } else if (productData.keywords && productData.keywords.length > 0) {
+      promptText += `- Target Keywords: ${productData.keywords.join(', ')}\n`;
+    }
+    
+    // Target Audience from ProductNode
+    if (productData.targetAudience) {
+      promptText += `- Target Audience: ${productData.targetAudience}\n`;
+    } else if (profileData?.targetAudience) {
+      promptText += `- Target Audience: ${profileData.targetAudience}\n`;
+    }
+    
+    // Brand information from Brand Kit
+    if (brandKitData) {
+      promptText += `- Brand Name: ${brandKitData.brandName}\n`;
+      promptText += `- Brand Tone of Voice: ${brandKitData.brandVoice}\n`;
+    } else if (productData.brandInfo?.name) {
+      promptText += `- Brand Name: ${productData.brandInfo.name}\n`;
+    } else if (profileData?.brandName) {
+      promptText += `- Brand Name: ${profileData.brandName}\n`;
+      if (profileData.tone) {
+        promptText += `- Brand Tone of Voice: ${profileData.tone}\n`;
+      }
+    }
+    
+    promptText += `\n`;
+    return promptText;
+  }
 
-  // Add video data
-  if (videoData.title) {
-    prompt += `Video Title: ${videoData.title}\n`;
+  // For other agent types, use the original format
+  promptText = `Generate ${agentType} content for an Amazon product listing.\n\n`;
+
+  // Add product data
+  if (productData.title) {
+    promptText += `Product Title: ${productData.title}\n`;
   }
-  if (videoData.transcription) {
-    prompt += `Video Transcription: ${videoData.transcription.slice(0, 1000)}...\n\n`;
+  if (productData.features && productData.features.length > 0) {
+    promptText += `Product Features:\n`;
+    productData.features.forEach((feature, index) => {
+      promptText += `${index + 1}. ${feature}\n`;
+    });
+    promptText += `\n`;
+  }
+  
+  if (productData.specifications) {
+    promptText += `Product Specifications:\n`;
+    if (productData.specifications.dimensions) {
+      promptText += `- Dimensions: ${productData.specifications.dimensions}\n`;
+    }
+    if (productData.specifications.weight) {
+      promptText += `- Weight: ${productData.specifications.weight}\n`;
+    }
+    if (productData.specifications.materials?.length) {
+      promptText += `- Materials: ${productData.specifications.materials.join(', ')}\n`;
+    }
+    if (productData.specifications.color) {
+      promptText += `- Color: ${productData.specifications.color}\n`;
+    }
+    if (productData.specifications.size) {
+      promptText += `- Size: ${productData.specifications.size}\n`;
+    }
+    promptText += `\n`;
+  }
+
+  if (productData.keywords && productData.keywords.length > 0) {
+    promptText += `Target Keywords: ${productData.keywords.join(', ')}\n\n`;
   }
 
   // Add connected agent outputs
   if (connectedOutputs.length > 0) {
-    prompt += "Related content from other agents:\n";
+    promptText += "Related content from other agents:\n";
     connectedOutputs.forEach(({ type, content }) => {
-      prompt += `${type}: ${content}\n`;
+      promptText += `${type}: ${content}\n`;
     });
-    prompt += "\n";
+    promptText += "\n";
   }
 
   // Add profile data
   if (profileData) {
-    prompt += "Channel Information:\n";
-    prompt += `Channel Name: ${profileData.channelName}\n`;
-    prompt += `Content Type: ${profileData.contentType}\n`;
-    prompt += `Niche: ${profileData.niche}\n`;
+    promptText += "Brand Information:\n";
+    promptText += `Brand Name: ${profileData.brandName}\n`;
+    promptText += `Product Category: ${profileData.productCategory}\n`;
+    promptText += `Niche: ${profileData.niche}\n`;
     if (profileData.tone) {
-      prompt += `Tone: ${profileData.tone}\n`;
+      promptText += `Tone: ${profileData.tone}\n`;
     }
     if (profileData.targetAudience) {
-      prompt += `Target Audience: ${profileData.targetAudience}\n`;
+      promptText += `Target Audience: ${profileData.targetAudience}\n`;
     }
   }
 
-  return prompt;
+  return promptText;
 }

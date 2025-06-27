@@ -1,0 +1,68 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+# Task List Management 
+
+Guidelines for creating and managing task lists in markdown files to track project progress 
+
+## Task List Creation 
+
+1. Create task lists in a markdown file (in the project root):
+- use “TASKS.md” or a descriptive name relevant to the features (e.g., ‘ASSISTANT_CHAT.md’)
+
+2. Structure the file with these sections: 
+‘’’ markdown
+# feature name implementation 
+
+Brief description of the feature and its purpose. 
+
+# Completed Tasks 
+
+[x] Task 1 that has been completed 
+[x] Task 2 that has been completed 
+## in Progress Task
+
+[ ] Task 3 currently being worked on
+[ ] Task 4 to be completed soon
+
+## Future Tasks 
+
+[ ] Task 5 planned for the future implementation 
+[ ] Task 6 planned for the future implementation 
+
+## Implementation Plan
+
+Detailed description of how the feature will be implemented 
+
+1. Update the task list as you progress:
+
+
+Mark tasks as complete by changing ‘[ ]’ to ‘[x] ‘
+Add new tasks as they are identified 
+Move tasks between sections as appropriate 
+
+2. Keep “relevant files” section updated with:
+
+File paths that have been created or modified 
+Brief descriptions of each file’s purpose 
+Status indicators (e.g, ✅) for completed components 
+
+3. Add implementation details:
+
+Architecture decisions 
+Data flow descriptions 
+Technical components needed 
+Environment configuration 
+
+## Ai Instructions 
+
+Regularly update the task list file after implementing significant components. 
+Mark complete tasks with [x] when finished. 
+Add new tasks discovered during implementation. 
+Maintain the relevant files section with accurate file paths and descriptions. 
+Document implementation details, especially for complex features. 
+When implementing tasks one-by-one, first check which task to implement next. 
+After implementing a task, update the file to reflect progress. 
+

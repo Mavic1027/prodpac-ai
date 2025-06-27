@@ -51,7 +51,7 @@ export default function Page() {
   // Check if profile is incomplete on first visit
   useEffect(() => {
     if (profile !== undefined) {
-      const isIncomplete = !profile || !profile.channelName || !profile.contentType || !profile.niche;
+      const isIncomplete = !profile || !profile.brandName || !profile.productCategory || !profile.niche;
       if (isIncomplete && !localStorage.getItem('profileDialogDismissed')) {
         setShowProfileDialog(true);
       }
@@ -124,7 +124,7 @@ export default function Page() {
               <DialogTitle className="text-xl">Complete Your Profile</DialogTitle>
             </div>
             <DialogDescription className="text-base">
-              Set up your YouTube channel profile to get personalized AI-generated content that matches your style and audience.
+              Set up your Amazon brand profile to get personalized AI-generated listing content that matches your style and audience.
             </DialogDescription>
           </DialogHeader>
           
@@ -174,12 +174,12 @@ export default function Page() {
         <div>
           <h1 className="text-3xl font-bold">Projects</h1>
           <p className="text-muted-foreground">
-            Create and manage your YouTube video projects
+            Create and manage your Amazon listing projects
           </p>
         </div>
         
         <div className="flex items-center gap-3">
-          {profile && (!profile.channelName || !profile.contentType || !profile.niche) && (
+          {profile && (!profile.brandName || !profile.productCategory || !profile.niche) && (
             <Button variant="outline" size="sm" asChild className="gap-2">
               <Link to="/dashboard/settings">
                 <User className="h-4 w-4" />
@@ -198,16 +198,16 @@ export default function Page() {
           <DialogContent>
             <DialogHeader>
               <DialogTitle>Create New Project</DialogTitle>
-              <DialogDescription>
-                Each project is a canvas for creating content for one video
-              </DialogDescription>
+                          <DialogDescription>
+              Each project is a canvas for creating content for one product listing
+            </DialogDescription>
             </DialogHeader>
             <div className="grid gap-4 py-4">
               <div className="grid gap-2">
                 <Label htmlFor="title">Project Title</Label>
                 <Input
                   id="title"
-                  placeholder="My Awesome Video"
+                  placeholder="My Amazon Product Listing"
                   value={newProject.title}
                   onChange={(e) =>
                     setNewProject({ ...newProject, title: e.target.value })
@@ -218,7 +218,7 @@ export default function Page() {
                 <Label htmlFor="description">Description (optional)</Label>
                 <Textarea
                   id="description"
-                  placeholder="Brief description of your video project..."
+                  placeholder="Brief description of your product listing project..."
                   value={newProject.description}
                   onChange={(e) =>
                     setNewProject({ ...newProject, description: e.target.value })
@@ -257,7 +257,7 @@ export default function Page() {
             <Video className="h-12 w-12 text-muted-foreground mb-4" />
             <h3 className="text-lg font-semibold mb-2">No projects yet</h3>
             <p className="text-muted-foreground text-center mb-4">
-              Create your first project to start generating YouTube content
+              Create your first project to start generating Amazon listing content
             </p>
             <Button onClick={() => setIsCreateOpen(true)}>
               <Plus className="mr-2 h-4 w-4" />

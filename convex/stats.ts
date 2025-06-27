@@ -4,9 +4,9 @@ export const getHeroStats = query({
   args: {},
   handler: async (ctx) => {
     
-    // Get total videos in the system
-    const allVideos = await ctx.db.query("videos").collect();
-    const processedVideos = allVideos.length;
+    // Get total products in the system
+    const allProducts = await ctx.db.query("products").collect();
+    const processedProducts = allProducts.length;
 
     // Get total agents deployed (all agents)
     const totalAgents = await ctx.db.query("agents").collect();
@@ -30,8 +30,8 @@ export const getHeroStats = query({
     todayStart.setHours(0, 0, 0, 0);
     const todayTimestamp = todayStart.getTime();
 
-    const videosToday = allVideos.filter(
-      video => video.createdAt && video.createdAt >= todayTimestamp
+    const productsToday = allProducts.filter(
+      product => product.createdAt && product.createdAt >= todayTimestamp
     ).length;
 
     const agentsToday = totalAgents.filter(
@@ -39,12 +39,12 @@ export const getHeroStats = query({
     ).length;
 
     return {
-      videosProcessed: processedVideos,
+      productsProcessed: processedProducts,
       agentsDeployed: agentsDeployed,
       activeAgents: activeAgents,
       projectsCreated: projectsCreated,
       totalUsers: usersCount,
-      videosToday: videosToday,
+      productsToday: productsToday,
       agentsToday: agentsToday,
     };
   },

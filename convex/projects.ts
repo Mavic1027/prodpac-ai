@@ -51,17 +51,17 @@ export const list = query({
         .collect();
     }
 
-    // Get first video for each project to use as thumbnail
+    // Get first product for each project to use as thumbnail
     const projectsWithThumbnails = await Promise.all(
       projects.map(async (project) => {
-        const firstVideo = await ctx.db
-          .query("videos")
+        const firstProduct = await ctx.db
+          .query("products")
           .withIndex("by_project", (q) => q.eq("projectId", project._id))
           .first();
         
         return {
           ...project,
-          thumbnail: firstVideo?.videoUrl || project.thumbnail,
+          thumbnail: firstProduct?.productImages?.[0]?.url || project.thumbnail,
         };
       })
     );
@@ -128,13 +128,13 @@ export const remove = mutation({
     }
 
     // Delete all related data
-    const videos = await ctx.db
-      .query("videos")
+    const products = await ctx.db
+      .query("products")
       .withIndex("by_project", (q) => q.eq("projectId", args.id))
       .collect();
     
-    for (const video of videos) {
-      await ctx.db.delete(video._id);
+    for (const product of products) {
+      await ctx.db.delete(product._id);
     }
 
     const agents = await ctx.db

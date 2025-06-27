@@ -11,8 +11,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "~/components/ui/tabs";
 import { Copy, Check, Eye, Edit3, Youtube, Twitter, Sparkles, FileText, Image } from "lucide-react";
 import { toast } from "sonner";
 import { Card } from "~/components/ui/card";
-import { YouTubePreview } from "~/components/preview/YouTubePreview";
-import { TwitterThreadPreview } from "~/components/preview/TwitterThreadPreview";
+import { AmazonListingPreview } from "~/components/preview/AmazonListingPreview";
 import { cn } from "~/lib/utils";
 
 interface ContentModalProps {
@@ -22,21 +21,23 @@ interface ContentModalProps {
     type: string;
     draft: string;
     thumbnailUrl?: string;
+    imageUrl?: string;
   } | null;
   onUpdate?: (newContent: string) => void;
-  videoData?: {
+  productData?: {
     title?: string;
-    thumbnailUrl?: string;
-    duration?: number;
+    bulletPoints?: string;
+    productImages?: string[];
+    heroImageUrl?: string;
+    lifestyleImageUrl?: string;
+    infographicUrl?: string;
   };
-  channelData?: {
-    channelName?: string;
-    channelAvatar?: string;
-    subscriberCount?: string;
+  brandData?: {
+    brandName?: string;
   };
 }
 
-export function ContentModal({ isOpen, onClose, nodeData, onUpdate, videoData, channelData }: ContentModalProps) {
+export function ContentModal({ isOpen, onClose, nodeData, onUpdate, productData, brandData }: ContentModalProps) {
   const [content, setContent] = useState("");
   const [copied, setCopied] = useState(false);
   const [activeTab, setActiveTab] = useState<"edit" | "preview">("edit");
@@ -65,20 +66,22 @@ export function ContentModal({ isOpen, onClose, nodeData, onUpdate, videoData, c
   if (!nodeData) return null;
 
   const titles = {
-    title: "Video Title",
-    description: "Video Description",
-    thumbnail: "Thumbnail Concept",
-    tweets: "Twitter/X Thread",
+    title: "Product Title",
+    description: "Bullet Points",
+    "hero-image": "Hero Image",
+    "lifestyle-image": "Lifestyle Image",
+    infographic: "Infographic",
   };
 
   const icons = {
     title: <FileText className="h-5 w-5" />,
     description: <FileText className="h-5 w-5" />,
-    thumbnail: <Image className="h-5 w-5" />,
-    tweets: <Twitter className="h-5 w-5" />,
+    "hero-image": <Image className="h-5 w-5" />,
+    "lifestyle-image": <Image className="h-5 w-5" />,
+    infographic: <Image className="h-5 w-5" />,
   };
 
-  const showPreview = nodeData.type === "title" || nodeData.type === "description" || nodeData.type === "tweets";
+  const showPreview = nodeData.type === "title" || nodeData.type === "description";
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
@@ -98,8 +101,8 @@ export function ContentModal({ isOpen, onClose, nodeData, onUpdate, videoData, c
               <div>
                 <DialogTitle className="text-xl">{titles[nodeData.type as keyof typeof titles]}</DialogTitle>
                 <p className="text-sm text-muted-foreground mt-0.5">
-                  {nodeData.type === "thumbnail" 
-                    ? "AI-generated thumbnail concept and image"
+                  {nodeData.type === "hero-image" || nodeData.type === "lifestyle-image" || nodeData.type === "infographic"
+                    ? "AI-generated image for your Amazon listing"
                     : "View, edit, and preview your AI-generated content"
                   }
                 </p>
@@ -159,24 +162,14 @@ export function ContentModal({ isOpen, onClose, nodeData, onUpdate, videoData, c
                 
                 <TabsContent value="preview" className="p-6 pt-4 m-0">
                   {(nodeData.type === "title" || nodeData.type === "description") && (
-                    <YouTubePreview
-                      title={nodeData.type === "title" ? content : (videoData?.title || "Video Title")}
-                      description={nodeData.type === "description" ? content : ""}
-                      thumbnailUrl={nodeData.thumbnailUrl || videoData?.thumbnailUrl}
-                      duration={videoData?.duration}
-                      channelName={channelData?.channelName}
-                      channelAvatar={channelData?.channelAvatar}
-                      subscriberCount={channelData?.subscriberCount}
-                    />
-                  )}
-                  
-                  {nodeData.type === "tweets" && (
-                    <TwitterThreadPreview
-                      tweets={content}
-                      username={channelData?.channelName?.toLowerCase().replace(/\s+/g, '') || "yourhandle"}
-                      displayName={channelData?.channelName || "Your Channel"}
-                      profileImage={channelData?.channelAvatar}
-                      media={nodeData.thumbnailUrl ? [nodeData.thumbnailUrl] : []}
+                    <AmazonListingPreview
+                      title={nodeData.type === "title" ? content : (productData?.title || "Product Title")}
+                      bulletPoints={nodeData.type === "description" ? content : (productData?.bulletPoints || "")}
+                      productImages={productData?.productImages || []}
+                      heroImageUrl={productData?.heroImageUrl}
+                      lifestyleImageUrl={productData?.lifestyleImageUrl}
+                      infographicUrl={productData?.infographicUrl}
+                      brandName={brandData?.brandName || "Your Brand"}
                     />
                   )}
                 </TabsContent>
@@ -184,21 +177,21 @@ export function ContentModal({ isOpen, onClose, nodeData, onUpdate, videoData, c
             </Tabs>
           ) : (
             <div className="p-6 space-y-4 overflow-y-auto max-h-[calc(90vh-200px)]">
-              {nodeData.type === "thumbnail" && nodeData.thumbnailUrl && (
+              {(nodeData.type === "hero-image" || nodeData.type === "lifestyle-image" || nodeData.type === "infographic") && (nodeData.thumbnailUrl || nodeData.imageUrl) && (
                 <Card className="relative overflow-hidden bg-gradient-to-br from-background to-muted/20">
                   <div className="absolute inset-0 bg-gradient-to-br from-primary/5 to-transparent" />
                   <div className="relative p-6">
-                    <div className="aspect-video relative rounded-lg overflow-hidden shadow-2xl">
+                    <div className="aspect-square relative rounded-lg overflow-hidden shadow-2xl">
                       <img 
-                        src={nodeData.thumbnailUrl} 
-                        alt="Generated thumbnail" 
+                        src={nodeData.thumbnailUrl || nodeData.imageUrl} 
+                        alt={`Generated ${nodeData.type.replace('-', ' ')}`} 
                         className="w-full h-full object-cover"
                       />
                       <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent" />
                     </div>
                     <div className="mt-4 flex items-center gap-2 text-sm text-muted-foreground">
                       <Sparkles className="h-4 w-4" />
-                      <span>AI-generated YouTube thumbnail</span>
+                      <span>AI-generated {nodeData.type.replace('-', ' ')} for Amazon</span>
                     </div>
                   </div>
                 </Card>
@@ -206,14 +199,14 @@ export function ContentModal({ isOpen, onClose, nodeData, onUpdate, videoData, c
               
               <div>
                 <label className="text-sm font-medium mb-2 block">
-                  {nodeData.type === "thumbnail" ? "Thumbnail Concept & Prompt" : "Content"}
+                  {(nodeData.type === "hero-image" || nodeData.type === "lifestyle-image" || nodeData.type === "infographic") ? "Image Generation Prompt" : "Content"}
                 </label>
                 <Textarea
                   value={content}
                   onChange={(e) => setContent(e.target.value)}
                   className={cn(
                     "font-mono text-sm resize-none",
-                    nodeData.type === "thumbnail" ? "min-h-[150px]" : "min-h-[300px]"
+                    (nodeData.type === "hero-image" || nodeData.type === "lifestyle-image" || nodeData.type === "infographic") ? "min-h-[150px]" : "min-h-[300px]"
                   )}
                   placeholder="No content generated yet..."
                 />

@@ -81,13 +81,13 @@ export const getSharedCanvas = query({
       return null;
     }
 
-    // Get video from the videos table
-    const video = await ctx.db
-      .query("videos")
+    // Get product from the products table
+    const product = await ctx.db
+      .query("products")
       .withIndex("by_project", (q) => q.eq("projectId", share.projectId))
       .first();
     
-    if (!video) {
+    if (!product) {
       return null;
     }
 
@@ -103,19 +103,20 @@ export const getSharedCanvas = query({
         name: project.title, // projects have 'title' not 'name'
         thumbnail: project.thumbnail,
       },
-      video: {
-        _id: video._id,
-        title: video.title || "",
-        url: video.videoUrl || "",
-        duration: video.duration,
-        fileSize: video.fileSize,
-        transcription: video.transcription,
+      product: {
+        _id: product._id,
+        title: product.title || "",
+        asin: product.asin,
+        productImages: product.productImages || [],
+        features: product.features || [],
+        specifications: product.specifications,
+        keywords: product.keywords || [],
       },
       agents: agents.map(agent => ({
         _id: agent._id,
         type: agent.type,
         draft: agent.draft,
-        thumbnailUrl: agent.thumbnailUrl,
+        imageUrl: agent.imageUrl,
         status: agent.status,
       })),
     };
