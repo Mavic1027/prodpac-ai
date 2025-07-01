@@ -59,7 +59,7 @@ const BRAND_VOICES = [
   "Minimalist & Clean"
 ];
 
-export const ProductNode = memo(({ data, selected }: NodeProps) => {
+export const ProductNode = memo(({ data, selected, id }: NodeProps & { id: string }) => {
   const productData = data as ProductNodeData;
   const [isExpanded, setIsExpanded] = useState(false);
   const [formData, setFormData] = useState({

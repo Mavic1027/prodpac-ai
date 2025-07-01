@@ -200,7 +200,7 @@ export function FloatingChat({
 
   // Extract agent mentions from message
   const extractAgentMention = (content: string) => {
-    const mentionRegex = /@(\w+_AGENT)/gi;
+    const mentionRegex = /@([\w-]+_AGENT)/gi;
     const match = content.match(mentionRegex);
     if (match) {
       const agentType = match[0].replace("@", "").replace("_AGENT", "").toLowerCase();
@@ -212,7 +212,7 @@ export function FloatingChat({
 
   // Render message with highlighted mentions
   const renderMessageContent = (content: string) => {
-    const mentionRegex = /@(\w+_AGENT)/gi;
+    const mentionRegex = /@([\w-]+_AGENT)/gi;
     const parts = content.split(mentionRegex);
     
     return parts.map((part, index) => {

@@ -107,6 +107,13 @@ const cleanDraftText = (draft: string, type: string): string => {
     return cleaned.trim();
   }
   
+  // For bullet-points type, remove ** markdown symbols but keep structure
+  if (type === 'bullet-points') {
+    // Remove all ** symbols while preserving the rest of the formatting
+    let cleaned = draft.replace(/\*\*/g, '');
+    return cleaned.trim();
+  }
+  
   return draft;
 };
 
@@ -202,7 +209,7 @@ export const AgentNode = memo(({ data, selected, id }: ExtendedNodeProps) => {
       {/* Regular content display */}
       {data.status !== "generating" && ((data.type === "hero-image" || data.type === "lifestyle-image") && (data.thumbnailUrl || data.imageUrl) ? (
         <div className="mb-4 cursor-pointer group/content" onClick={data.onView}>
-          <div className="aspect-video relative rounded-xl overflow-hidden bg-black shadow-lg transition-all duration-300 hover:shadow-xl">
+          <div className="aspect-[4/3] relative rounded-xl overflow-hidden bg-black shadow-lg transition-all duration-300 hover:shadow-xl">
             <img 
               src={data.thumbnailUrl || data.imageUrl} 
               alt="Generated image" 
@@ -210,18 +217,28 @@ export const AgentNode = memo(({ data, selected, id }: ExtendedNodeProps) => {
             />
             <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-transparent opacity-0 group-hover/content:opacity-100 transition-opacity" />
           </div>
-          {data.draft && (
-            <p className="text-xs text-muted-foreground mt-2 line-clamp-2 px-1">
-              {cleanDraftText(data.draft, data.type)}
-            </p>
-          )}
         </div>
       ) : data.draft ? (
         <div className="mb-4 cursor-pointer group/content" onClick={data.onView}>
           <div className="rounded-lg bg-muted/50 p-4 border border-border/50 transition-all duration-200 hover:bg-muted/70 hover:border-border">
-            <p className={`text-sm text-foreground/80 leading-relaxed ${data.type === 'title' ? '' : 'line-clamp-3'}`}>
-              {cleanDraftText(data.draft, data.type)}
-            </p>
+            {data.type === 'bullet-points' ? (
+              // Special scrollable view for bullet points - show all content
+              <div className="max-h-32 overflow-y-auto scrollbar-thin scrollbar-thumb-transparent hover:scrollbar-thumb-muted-foreground/20 scrollbar-track-transparent">
+                <div className="text-sm text-foreground/80 leading-relaxed whitespace-pre-wrap">
+                  {cleanDraftText(data.draft, data.type)}
+                </div>
+              </div>
+            ) : data.type === 'title' ? (
+              // Full content for titles (no line clamp)
+              <p className="text-sm text-foreground/80 leading-relaxed">
+                {cleanDraftText(data.draft, data.type)}
+              </p>
+            ) : (
+              // Line clamp for other content types
+              <p className="text-sm text-foreground/80 leading-relaxed line-clamp-3">
+                {cleanDraftText(data.draft, data.type)}
+              </p>
+            )}
           </div>
         </div>
       ) : (

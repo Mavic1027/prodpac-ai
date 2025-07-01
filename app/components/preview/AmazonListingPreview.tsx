@@ -98,11 +98,16 @@ export function AmazonListingPreview({
     return stars;
   };
 
-  // Parse bullet points
-  const bullets = bulletPoints ? bulletPoints.split('\n').filter(bullet => bullet.trim()) : [];
+  // Clean and parse bullet points - remove ** markdown symbols for display
+  const cleanBulletPoints = (text: string): string => {
+    if (!text) return '';
+    return text.replace(/\*\*/g, '');
+  };
+
+  const bullets = bulletPoints ? cleanBulletPoints(bulletPoints).split('\n').filter(bullet => bullet.trim()) : [];
 
   return (
-    <div className="max-w-7xl mx-auto bg-white">
+    <div className="w-full mx-auto bg-white">
       {/* Amazon Header */}
       <div className="bg-[#131921] text-white p-3">
         <div className="flex items-center gap-4">
@@ -135,11 +140,11 @@ export function AmazonListingPreview({
         <span className="text-gray-700">Product Title</span>
       </div>
 
-      <div className="p-6">
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+      <div className="p-8">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-16 max-w-none mx-auto px-8">
           {/* Left: Product Images */}
-          <div className="lg:col-span-5">
-            <div className="space-y-4">
+          <div className="lg:col-span-4">
+            <div className="space-y-6">
               {/* Main Image */}
               <div className="relative aspect-square bg-white border rounded-lg overflow-hidden">
                 {selectedImage ? (
@@ -179,7 +184,7 @@ export function AmazonListingPreview({
           </div>
 
           {/* Middle: Product Details */}
-          <div className="lg:col-span-4 space-y-4">
+          <div className="lg:col-span-5 space-y-8">
             {/* Brand & Title */}
             <div>
               <div className="text-blue-600 text-sm hover:underline cursor-pointer">
@@ -231,8 +236,8 @@ export function AmazonListingPreview({
 
           {/* Right: Buy Box */}
           <div className="lg:col-span-3">
-            <Card className="p-4 border border-gray-300 rounded-lg">
-              <div className="space-y-4">
+            <Card className="p-6 border border-gray-300 rounded-lg">
+              <div className="space-y-5">
                 {/* Price */}
                 <div className="space-y-1">
                   <div className="flex items-center gap-2">

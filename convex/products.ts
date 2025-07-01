@@ -266,6 +266,11 @@ export const getWithFeatures = query({
       specifications: product.specifications,
       keywords: product.keywords,
       brandInfo: product.brandInfo,
+      // Enhanced ProductNode metadata
+      productName: product.productName,
+      keyFeatures: product.keyFeatures,
+      targetKeywords: product.targetKeywords,
+      targetAudience: product.targetAudience,
     };
   },
 });

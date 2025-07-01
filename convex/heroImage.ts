@@ -3,6 +3,216 @@ import { action } from "./_generated/server";
 import { api } from "./_generated/api";
 import OpenAI, { toFile } from "openai";
 
+// Import the proven prompt building function from aiHackathon
+function buildHackathonPrompt(
+  agentType: string,
+  productData: { 
+    title?: string; 
+    features?: string[];
+    specifications?: {
+      dimensions?: string;
+      weight?: string;
+      materials?: string[];
+      color?: string;
+      size?: string;
+    };
+    keywords?: string[];
+    brandInfo?: {
+      name: string;
+      description?: string;
+    };
+    format?: string;
+    // Enhanced product metadata from ProductNode
+    productName?: string;
+    keyFeatures?: string;
+    targetKeywords?: string;
+    targetAudience?: string;
+  },
+  connectedOutputs: Array<{ type: string; content: string }>,
+  profileData?: {
+    brandName: string;
+    productCategory: string;
+    niche: string;
+    tone?: string;
+    targetAudience?: string;
+  },
+  brandKitData?: {
+    brandName: string;
+    colorPalette: {
+      type: "preset" | "custom";
+      preset?: string;
+      custom?: {
+        primary: string;
+        secondary: string;
+        accent: string;
+      };
+    };
+    brandVoice: string;
+  }
+): string {
+  let prompt = "";
+
+  // Add product metadata if available
+  if (productData.specifications) {
+    prompt += "Product Technical Details:\n";
+    if (productData.specifications.dimensions) {
+      prompt += `- Dimensions: ${productData.specifications.dimensions}\n`;
+    }
+    if (productData.specifications.weight) {
+      prompt += `- Weight: ${productData.specifications.weight}\n`;
+    }
+    if (productData.specifications.materials?.length) {
+      prompt += `- Materials: ${productData.specifications.materials.join(', ')}\n`;
+    }
+    if (productData.specifications.color) {
+      prompt += `- Color: ${productData.specifications.color}\n`;
+    }
+    if (productData.specifications.size) {
+      prompt += `- Size: ${productData.specifications.size}\n`;
+    }
+    prompt += "\n";
+  }
+
+  // Always process product data (features OR Product Node data)
+  if (productData.features && productData.features.length > 0 || productData.productName || productData.keyFeatures) {
+    prompt += `🎯 PRODUCT ANALYSIS:\n`;
+    const featureCount = productData.features?.length || 0;
+    prompt += `- Feature count: ${featureCount}\n`;
+    prompt += `- Product complexity: ${featureCount > 5 ? 'Feature-rich' : featureCount > 2 ? 'Standard' : 'Simple'}\n\n`;
+    
+    if (productData.features && productData.features.length > 0) {
+      prompt += `📝 PRODUCT FEATURES (Analyze carefully for benefits and selling points):\n`;
+      productData.features.forEach((feature, index) => {
+        prompt += `${index + 1}. ${feature}\n`;
+      });
+      prompt += `\n`;
+    }
+    
+    if (productData.title) {
+      prompt += `Current Product Title: ${productData.title}\n\n`;
+    }
+    
+    if (productData.keywords && productData.keywords.length > 0) {
+      prompt += `🎯 TARGET KEYWORDS:\n`;
+      productData.keywords.forEach(keyword => {
+        prompt += `- ${keyword}\n`;
+      });
+      prompt += `\n`;
+    }
+    
+    if (productData.brandInfo) {
+      prompt += `🏷️ BRAND INFO:\n`;
+      prompt += `- Brand: ${productData.brandInfo.name}\n`;
+      if (productData.brandInfo.description) {
+        prompt += `- Description: ${productData.brandInfo.description}\n`;
+      }
+      prompt += `\n`;
+    }
+    
+    if (agentType === 'hero-image') {
+      // EXACT COPY of Title Generator logic - just changing the final prompt text
+      prompt += `\n🎯 PRODUCT INFORMATION FOR HERO IMAGE GENERATION:\n`;
+      
+      // Product Name from ProductNode (enhanced metadata) - EXACT SAME AS TITLE
+      if (productData.productName) {
+        prompt += `Product Name: ${productData.productName}\n`;
+      } else if (productData.title) {
+        prompt += `Product Name: ${productData.title}\n`;
+      }
+      
+      // Key Features from ProductNode - EXACT SAME AS TITLE  
+      if (productData.keyFeatures) {
+        prompt += `Key Features: ${productData.keyFeatures}\n`;
+      } else if (productData.features && productData.features.length > 0) {
+        prompt += `Key Features: ${productData.features.join(', ')}\n`;
+      }
+      
+      // Target Keywords from ProductNode - EXACT SAME AS TITLE
+      if (productData.targetKeywords) {
+        prompt += `Target Keywords: ${productData.targetKeywords}\n`;
+      } else if (productData.keywords && productData.keywords.length > 0) {
+        prompt += `Target Keywords: ${productData.keywords.join(', ')}\n`;
+      }
+      
+      // Target Audience from ProductNode - EXACT SAME AS TITLE
+      if (productData.targetAudience) {
+        prompt += `Target Audience: ${productData.targetAudience}\n`;
+      } else if (profileData?.targetAudience) {
+        prompt += `Target Audience: ${profileData.targetAudience}\n`;
+      }
+      
+      // Product specifications if available
+      if (productData.specifications) {
+        prompt += `Product Specifications:\n`;
+        if (productData.specifications.dimensions) {
+          prompt += `- Dimensions: ${productData.specifications.dimensions}\n`;
+        }
+        if (productData.specifications.materials?.length) {
+          prompt += `- Materials: ${productData.specifications.materials.join(', ')}\n`;
+        }
+        if (productData.specifications.color) {
+          prompt += `- Color: ${productData.specifications.color}\n`;
+        }
+        if (productData.specifications.size) {
+          prompt += `- Size: ${productData.specifications.size}\n`;
+        }
+      }
+      
+      prompt += `\n🚀 GENERATE AMAZON HERO IMAGE PROMPT:\n`;
+      prompt += `You are a veteran e-commerce photographer who shoots Amazon MAIN images that dominate search results. Follow Amazon's image policy to the letter while maximizing click-through rate.\n\n`;
+      prompt += `Transform the user-supplied source_image into one perfect Amazon hero shot.\n`;
+      prompt += `Source image: {{source_image}}\n`;
+      prompt += `Angle: three-quarter (45°) front view\n`;
+      prompt += `Lighting: bright, even, pro-studio lighting\n`;
+      prompt += `Background: pure white (RGB 255,255,255)\n`;
+      prompt += `Shadow: soft, natural shadow directly beneath product\n\n`;
+      prompt += `Hard requirements:\n`;
+      prompt += `1. Show the entire product exactly as in source_image—no missing parts, no added items.\n`;
+      prompt += `2. Center the product and fill ~85 – 90 % of the frame.\n`;
+      prompt += `3. Background must be 100 % pure white—no props, text, logos, watermarks, gradients, or reflections.\n`;
+      prompt += `4. Keep colors true to the source; preserve material textures.\n`;
+      prompt += `5. Output one ultra-sharp, photorealistic square JPEG, ≥ 3000 × 3000 px.\n`;
+      prompt += `6. Subtle depth-of-field is OK, but all product edges stay crisp.\n\n`;
+      prompt += `Negative prompt: extra objects, packaging variations, people, text, watermark, illustration style, low-resolution, noise.\n\n`;
+      prompt += `Return exactly one compliant, high-impact image ready for Amazon upload.\n\n`;
+      
+      return prompt;
+    }
+  } else {
+    prompt += `⚠️ LIMITED CONTEXT MODE - No product data available\n\n`;
+    if (productData.title) {
+      prompt += `Product Title: ${productData.title}\n`;
+    }
+    prompt += `Generate high-quality ${agentType} content based on the title and any connected content.\n`;
+    prompt += `Focus on creating compelling, clickable content that aligns with the title's topic.\n\n`;
+  }
+
+  // Add connected agent outputs
+  if (connectedOutputs.length > 0) {
+    prompt += "Related content from other agents:\n";
+    connectedOutputs.forEach(({ type, content }) => {
+      prompt += `${type}: ${content}\n`;
+    });
+    prompt += "\n";
+  }
+
+  // Add profile data as fallback
+  if (profileData) {
+    prompt += "Brand Information:\n";
+    prompt += `Brand Name: ${profileData.brandName}\n`;
+    prompt += `Product Category: ${profileData.productCategory}\n`;
+    prompt += `Niche: ${profileData.niche}\n`;
+    if (profileData.tone) {
+      prompt += `Tone: ${profileData.tone}\n`;
+    }
+    if (profileData.targetAudience) {
+      prompt += `Target Audience: ${profileData.targetAudience}\n`;
+    }
+  }
+
+  return prompt;
+}
+
 export const generateHeroImage = action({
   args: {
     agentType: v.literal("hero-image"),
@@ -29,6 +239,11 @@ export const generateHeroImage = action({
         description: v.optional(v.string()),
       })),
       format: v.optional(v.string()),
+      // Enhanced product metadata from ProductNode
+      productName: v.optional(v.string()),
+      keyFeatures: v.optional(v.string()),
+      targetKeywords: v.optional(v.string()),
+      targetAudience: v.optional(v.string()),
     }),
     connectedAgentOutputs: v.array(
       v.object({
@@ -53,6 +268,8 @@ export const generateHeroImage = action({
       agentType: args.agentType,
       productId: args.productId,
       imageCount: args.productImages.length,
+      hasProductName: !!args.productData.productName,
+      hasKeyFeatures: !!args.productData.keyFeatures,
       hasFeatures: !!args.productData.features?.length,
       hasProfile: !!args.profileData,
       connectedAgentsCount: args.connectedAgentOutputs.length
@@ -80,6 +297,8 @@ export const generateHeroImage = action({
         });
         console.log("[Hero Image] Fresh product data fetched:", {
           hasTitle: !!freshProductData?.title,
+          hasProductName: !!freshProductData?.productName,
+          hasKeyFeatures: !!freshProductData?.keyFeatures,
           hasFeatures: !!freshProductData?.features?.length,
           featuresCount: freshProductData?.features?.length || 0
         });
@@ -90,188 +309,107 @@ export const generateHeroImage = action({
             specifications: freshProductData.specifications || args.productData.specifications,
             keywords: freshProductData.keywords || args.productData.keywords,
             brandInfo: freshProductData.brandInfo || args.productData.brandInfo,
+            // Enhanced ProductNode metadata
+            productName: freshProductData.productName || args.productData.productName,
+            keyFeatures: freshProductData.keyFeatures || args.productData.keyFeatures,
+            targetKeywords: freshProductData.targetKeywords || args.productData.targetKeywords,
+            targetAudience: freshProductData.targetAudience || args.productData.targetAudience,
           };
         }
       }
 
-      // Validate inputs
+      // Log data availability using same pattern as Title Generator
+      console.log(`[Hero Image] Data availability:`, {
+        // Product Node data (PRIORITY)
+        hasProductName: !!productData.productName,
+        productName: productData.productName,
+        hasKeyFeatures: !!productData.keyFeatures,
+        keyFeatures: productData.keyFeatures,
+        hasTargetKeywords: !!productData.targetKeywords,
+        targetKeywords: productData.targetKeywords,
+        hasProductTargetAudience: !!productData.targetAudience,
+        productTargetAudience: productData.targetAudience,
+        // Legacy database features (fallback)
+        hasDatabaseFeatures: !!productData.features?.length,
+        databaseFeaturesCount: productData.features?.length || 0,
+        // Connected agents
+        hasConnectedAgents: args.connectedAgentOutputs.length > 0,
+        // Profile data (fallback only)
+        hasProfile: !!args.profileData,
+        profileFallback: args.profileData ? {
+          brandName: args.profileData.brandName,
+          productCategory: args.profileData.productCategory,
+          targetAudience: args.profileData.targetAudience,
+        } : null
+      });
+
+      // Validate we have a product image to edit
       if (!args.productImages || args.productImages.length === 0) {
-        throw new Error("No product images provided for hero image generation.");
+        throw new Error("No product images provided. Please connect to a Product Image Node with uploaded images.");
       }
 
-      // Build a comprehensive prompt for hero image generation
-      console.log("[Hero Image] Building hero image generation prompt");
-      
-      let heroImagePrompt = "Create a stunning Amazon hero image with the following requirements:\n\n";
-      
-      if (productData.title) {
-        heroImagePrompt += `Product Title: ${productData.title}\n`;
+      // Use the proven buildHackathonPrompt function like Title Generator
+      console.log("[Hero Image] Building hero image editing prompt using proven logic");
+      let heroImagePrompt = buildHackathonPrompt(
+        'hero-image',
+        productData,
+        args.connectedAgentOutputs,
+        args.profileData
+      );
+
+      // If user provided specific instructions via chat, incorporate them
+      if (args.additionalContext && args.additionalContext.trim()) {
+        console.log("[Hero Image] Adding user-specific instructions:", args.additionalContext);
+        heroImagePrompt += `\n\n🎯 USER REQUEST: The user specifically requested: "${args.additionalContext}"\nPlease incorporate this request while maintaining Amazon compliance (white background, studio lighting, etc.).`;
       }
+
+      // DEBUG: Log the exact prompt being sent to AI
+      console.log(`[Hero Image] EXACT PROMPT BEING SENT TO AI:`);
+      console.log(`--- PROMPT START ---`);
+      console.log(heroImagePrompt);
+      console.log(`--- PROMPT END ---`);
+
+      // Convert first product image to the format needed for gpt-image-1 editing
+      console.log("[Hero Image] Converting product image for gpt-image-1 editing...");
+      const sourceImage = args.productImages[0];
       
-      if (productData.features && productData.features.length > 0) {
-        heroImagePrompt += `\nProduct Features:\n`;
-        productData.features.forEach((feature, index) => {
-          heroImagePrompt += `${index + 1}. ${feature}\n`;
-        });
-      }
+      // Convert dataUrl to blob
+      const response = await fetch(sourceImage.dataUrl);
+      const imageBlob = await response.blob();
+      console.log("[Hero Image] Source image blob size:", imageBlob.size);
       
-      if (productData.specifications) {
-        heroImagePrompt += `\nProduct Specifications:\n`;
-        if (productData.specifications.dimensions) {
-          heroImagePrompt += `- Dimensions: ${productData.specifications.dimensions}\n`;
-        }
-        if (productData.specifications.materials?.length) {
-          heroImagePrompt += `- Materials: ${productData.specifications.materials.join(', ')}\n`;
-        }
-        if (productData.specifications.color) {
-          heroImagePrompt += `- Color: ${productData.specifications.color}\n`;
-        }
-      }
-      
-      if (args.connectedAgentOutputs.length > 0) {
-        heroImagePrompt += "\nRelated content:\n";
-        args.connectedAgentOutputs.forEach(({ type, content }) => {
-          if (type === "title") {
-            heroImagePrompt += `- Title suggestion: ${content}\n`;
-          }
-        });
-      }
-      
-      if (args.profileData) {
-        heroImagePrompt += `\nBrand Style:\n`;
-        heroImagePrompt += `- ${args.profileData.brandName} (${args.profileData.niche})\n`;
-        heroImagePrompt += `- Product Category: ${args.profileData.productCategory}\n`;
-        if (args.profileData.tone) {
-          heroImagePrompt += `- Tone: ${args.profileData.tone}\n`;
-        }
-      }
-      
-      if (args.additionalContext) {
-        heroImagePrompt += `\nSpecific requirements: ${args.additionalContext}\n`;
-      }
-      
-      heroImagePrompt += `\nAmazon Hero Image Requirements:\n`;
-      heroImagePrompt += `1. Clean white background (RGB 255, 255, 255)\n`;
-      heroImagePrompt += `2. Product fills 85% of image frame\n`;
-      heroImagePrompt += `3. Professional lighting, no harsh shadows\n`;
-      heroImagePrompt += `4. High resolution and crystal clear details\n`;
-      heroImagePrompt += `5. Product shown at best angle\n`;
-      heroImagePrompt += `6. No text overlays or graphics\n`;
-      heroImagePrompt += `7. Premium quality appearance that drives conversions\n`;
-      
-      console.log("[Hero Image] Prompt created, length:", heroImagePrompt.length);
-      
-      // First, analyze the uploaded product images with GPT-4 Vision
-      console.log("[Hero Image] Analyzing uploaded product images with GPT-4 Vision...");
-      console.log("[Hero Image] Number of input images:", args.productImages.length);
-      
-      const analysisMessages: OpenAI.Chat.ChatCompletionMessageParam[] = [
-        {
-          role: "system",
-          content: "You are an expert Amazon product photographer. Analyze the provided product images and create a detailed hero image concept that will maximize conversions and meet Amazon's requirements.",
-        },
-        {
-          role: "user",
-          content: [
-            { type: "text", text: heroImagePrompt + "\n\nAnalyze these product images and describe the perfect Amazon hero image based on them. Be specific about visual elements, positioning, lighting, and composition." },
-            ...args.productImages.map((image) => ({
-              type: "image_url" as const,
-              image_url: {
-                url: image.dataUrl,
-                detail: "high" as const,
-              },
-            })),
-          ],
-        },
-      ];
-      
-      const analysisResponse = await openai.chat.completions.create({
-        model: "gpt-4o",
-        messages: analysisMessages,
-        max_tokens: 800,
-        temperature: 0.7,
+      // Convert blob to OpenAI file format
+      const imageFile = await toFile(imageBlob, 'source-product-image.png', {
+        type: imageBlob.type || 'image/png',
       });
-      
-      const heroImageConcept = analysisResponse.choices[0].message.content || "";
-      console.log("[Hero Image] Analysis complete. Concept:", heroImageConcept.substring(0, 200) + "...");
-      
-      // Get detailed visual description
-      console.log("[Hero Image] Getting detailed visual description...");
-      
-      const descriptionMessages: OpenAI.Chat.ChatCompletionMessageParam[] = [
-        {
-          role: "system",
-          content: "You are a visual description expert. Describe EXACTLY what you see in these product images in extreme detail, including: product appearance, materials, colors, textures, shape, size, and any distinctive features. Be as specific as possible for Amazon hero image creation.",
-        },
-        {
-          role: "user",
-          content: [
-            { type: "text", text: "Describe these product images in extreme detail. I need to create a professional Amazon hero image." },
-            ...args.productImages.map((image) => ({
-              type: "image_url" as const,
-              image_url: {
-                url: image.dataUrl,
-                detail: "high" as const,
-              },
-            })),
-          ],
-        },
-      ];
-      
-      const descriptionResponse = await openai.chat.completions.create({
-        model: "gpt-4o",
-        messages: descriptionMessages,
-        max_tokens: 1000,
-        temperature: 0.3,
-      });
-      
-      const visualDescription = descriptionResponse.choices[0].message.content || "";
-      console.log("[Hero Image] Visual description complete:", visualDescription.substring(0, 200) + "...");
-      
-      // Create the hero image generation prompt
-      let finalPrompt = `Create a professional Amazon hero image based on this product:\n\n`;
-      finalPrompt += `VISUAL DESCRIPTION:\n${visualDescription}\n\n`;
-      finalPrompt += `HERO IMAGE CONCEPT:\n${heroImageConcept}\n\n`;
-      finalPrompt += `AMAZON REQUIREMENTS:\n`;
-      finalPrompt += `- Pure white background (RGB 255,255,255)\n`;
-      finalPrompt += `- Product centered and fills 85% of frame\n`;
-      finalPrompt += `- Professional studio lighting\n`;
-      finalPrompt += `- Sharp focus, high detail\n`;
-      finalPrompt += `- Premium commercial photography quality\n`;
-      finalPrompt += `- Clean, minimal, conversion-focused\n`;
-      
-      console.log("[Hero Image] Final prompt length:", finalPrompt.length);
-      
-      // Generate the hero image using DALL-E 3
-      console.log("[Hero Image] Generating hero image with DALL-E 3...");
-      const imageResponse = await openai.images.generate({
-        model: "dall-e-3",
-        prompt: finalPrompt,
-        size: "1024x1024",
-        quality: "hd",
-        n: 1,
-        style: "natural",
+
+      // Use gpt-image-1 for hero image editing (taking existing product image and making it Amazon-compliant)
+      console.log("[Hero Image] Editing product image with gpt-image-1...");
+      const imageResponse = await openai.images.edit({
+        model: "gpt-image-1",
+        image: imageFile,
+        prompt: heroImagePrompt,
       });
       
       const imageData = imageResponse.data?.[0];
-      if (!imageData?.url) {
-        throw new Error("No image URL returned from generation");
+      if (!imageData?.b64_json) {
+        throw new Error("No base64 image data returned from gpt-image-1 API");
       }
       
-      console.log("[Hero Image] Hero image generated successfully");
-      console.log("[Hero Image] Image URL:", imageData.url.substring(0, 100) + "...");
+      console.log("[Hero Image] Hero image editing completed successfully");
       
-      // Download and store the generated image
-      const downloadResponse = await fetch(imageData.url);
-      if (!downloadResponse.ok) {
-        throw new Error("Failed to download generated hero image");
+      // Convert base64 to blob for storage (browser-compatible)
+      const base64String = imageData.b64_json;
+      const binaryString = atob(base64String);
+      const bytes = new Uint8Array(binaryString.length);
+      for (let i = 0; i < binaryString.length; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
       }
-      
-      const imageBlob = await downloadResponse.blob();
-      console.log("[Hero Image] Downloaded image blob, size:", imageBlob.size);
+      const generatedImageBlob = new Blob([bytes], { type: 'image/png' });
+      console.log("[Hero Image] Generated image blob size:", generatedImageBlob.size);
       
       // Store in Convex storage
-      const storageId = await ctx.storage.store(imageBlob);
+      const storageId = await ctx.storage.store(generatedImageBlob);
       console.log("[Hero Image] Stored in Convex with ID:", storageId);
       
       // Get the final URL
@@ -283,9 +421,8 @@ export const generateHeroImage = action({
       console.log("[Hero Image] Hero image generation completed successfully");
       
       return {
-        concept: heroImageConcept,
+        concept: "Professional Amazon hero shot created by transforming your uploaded product image with gpt-image-1 - pure white background, studio lighting, and Amazon compliance",
         imageUrl: finalUrl,
-        prompt: finalPrompt,
         storageId: storageId
       };
       

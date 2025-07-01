@@ -371,32 +371,52 @@ function InnerCanvas({
         )
       );
 
-              // Generate content based on agent type
-        let result: string;
-        let imageUrl: string | undefined;
-        let imageStorageId: string | undefined;
+      // Generate content based on agent type
+      let result: string;
+      let imageUrl: string | undefined;
+      let imageStorageId: string | undefined;
+      
+      if (agentNode.data.type === "hero-image") {
+        // For hero-image agent, extract product images from Product Image Node
+        console.log("[Canvas] Starting hero image generation");
         
-        if (agentNode.data.type === "hero-image" && thumbnailImages) {
-        // For hero-image agent, use uploaded images
-        console.log("[Canvas] Starting hero image generation with uploaded images:", thumbnailImages.length);
-        toast.info("Processing uploaded images for hero image generation...");
+        // Check if we have product images from Product Image Node
+        let productImages: { dataUrl: string; timestamp?: number }[] = [];
         
-        // Convert uploaded images to data URLs
-        console.log("[Canvas] Converting images to data URLs...");
-        const frames = await Promise.all(
-          thumbnailImages.map(async (file, index) => {
-            const dataUrl = await new Promise<string>((resolve) => {
-              const reader = new FileReader();
-              reader.onloadend = () => resolve(reader.result as string);
-              reader.readAsDataURL(file);
-            });
-            return {
-              dataUrl,
-              timestamp: index, // Use index as timestamp for uploaded images
-            };
-          })
-        );
-        console.log("[Canvas] Images converted to data URLs:", frames.length);
+        if (thumbnailImages && thumbnailImages.length > 0) {
+          // Use uploaded images if available
+          console.log("[Canvas] Using uploaded images:", thumbnailImages.length);
+          toast.info("Processing uploaded images for hero image generation...");
+          
+          productImages = await Promise.all(
+            thumbnailImages.map(async (file, index) => {
+              const dataUrl = await new Promise<string>((resolve) => {
+                const reader = new FileReader();
+                reader.onloadend = () => resolve(reader.result as string);
+                reader.readAsDataURL(file);
+              });
+              return {
+                dataUrl,
+                timestamp: index, // Use index as timestamp for uploaded images
+              };
+            })
+          );
+        } else if (videoNode?.data.imageUrl) {
+          // Use product image from Product Image Node
+          console.log("[Canvas] Using product image from Product Image Node");
+          toast.info("Processing product image for hero image generation...");
+          
+          productImages = [{
+            dataUrl: videoNode.data.imageUrl,
+            timestamp: 0,
+          }];
+        } else {
+          // No images available
+          toast.error("No product images available. Please upload a product image first.");
+          throw new Error("No product images available for hero image generation.");
+        }
+        
+        console.log("[Canvas] Product images prepared:", productImages.length);
         
         // Update progress: Generating with AI
         setNodes((nds: any) =>
@@ -419,7 +439,7 @@ function InnerCanvas({
         // Generate hero image with vision API
         console.log("[Canvas] Calling generateHeroImage action with:", {
           productId: videoNode?.data.productId,
-          frameCount: frames.length,
+          imageCount: productImages.length,
           hasProductData: !!productData,
           hasFeatures: !!productData.features?.length,
           connectedAgentsCount: connectedAgentOutputs.length,
@@ -429,10 +449,7 @@ function InnerCanvas({
         const heroImageResult = await generateHeroImage({
           agentType: "hero-image",
           productId: videoNode?.data.productId as Id<"products"> | undefined,
-          productImages: frames.map(f => ({
-            dataUrl: f.dataUrl,
-            timestamp: f.timestamp,
-          })),
+          productImages: productImages,
           productData,
           connectedAgentOutputs,
           profileData,
@@ -565,7 +582,7 @@ function InnerCanvas({
                 ...node,
                 data: {
                   ...node.data,
-                  draft: result,
+                  draft: agentNode.data.type === "hero-image" ? "" : result, // Don't show concept text for image agents
                   imageUrl: imageUrl,
                   status: "ready",
                   generationProgress: undefined, // Clear progress when done
@@ -579,7 +596,7 @@ function InnerCanvas({
       if (agentNode.data.agentId) {
         await updateAgentDraft({
           id: agentNode.data.agentId as Id<"agents">,
-          draft: result,
+          draft: agentNode.data.type === "hero-image" ? "" : result, // Don't save concept text for image agents
           status: "ready",
           imageUrl: imageUrl,
           imageStorageId: imageStorageId as Id<"_storage"> | undefined,
@@ -694,7 +711,7 @@ function InnerCanvas({
   // Handle chat messages with @mentions
   const handleChatMessage = useCallback(async (message: string) => {
     // Extract @mention from message - handle various formats
-    const mentionRegex = /@(\w+)[\s_]?(?:AGENT|Agent|agent)?/gi;
+    const mentionRegex = /@([\w-]+)[\s_]?(?:AGENT|Agent|agent)?/gi;
     const match = message.match(mentionRegex);
     
     if (!match) {
@@ -724,7 +741,25 @@ function InnerCanvas({
       .replace(/[\s_]?(?:AGENT|Agent|agent)/gi, "")
       .toLowerCase()
       .trim();
+    
+    // DEBUG: Log what we're looking for
+    console.log(`🔍 Chat: Looking for agent with type: "${agentType}"`);
+    console.log(`🔍 Chat: Available nodes:`, nodesRef.current.map((n: any) => ({
+      id: n.id,
+      type: n.type,
+      dataType: n.data?.type,
+      hasAgentId: !!n.data?.agentId
+    })));
+    
     const agentNode = nodesRef.current.find((n: any) => n.type === "agent" && n.data.type === agentType);
+    
+    console.log(`🔍 Chat: Found agent node:`, agentNode ? {
+      id: agentNode.id,
+      type: agentNode.type,
+      dataType: agentNode.data?.type,
+      hasAgentId: !!agentNode.data?.agentId,
+      hasDraft: !!agentNode.data?.draft
+    } : "NOT FOUND");
     
     if (!agentNode || !agentNode.data.agentId) {
       setChatMessages(prev => [...prev, {
@@ -845,10 +880,33 @@ function InnerCanvas({
       const isRegeneration = regenerationKeywords.some(keyword => lowerMessage.includes(keyword)) || 
                             (agentNode.data.draft && lowerMessage.includes('generate'));
       
-      // If regenerating, prepend context to the user message
-      const finalMessage = isRegeneration && agentNode.data.draft
-        ? `REGENERATE the ${agentNode.data.type} with a COMPLETELY NEW version based on the user's instructions. Current version: "${agentNode.data.draft}". User requirements: ${cleanMessage}. Create something different that incorporates their feedback.`
-        : cleanMessage;
+      // If regenerating, prepend context to the user message - special handling for bullet-points
+      let finalMessage;
+      if (isRegeneration && agentNode.data.draft) {
+        if (agentNode.data.type === 'bullet-points') {
+          // Special handling for bullet-points: preserve existing content while updating requested parts
+          finalMessage = `UPDATE the bullet points and description based on the user's request while preserving all existing content.
+
+CURRENT CONTENT:
+${agentNode.data.draft}
+
+USER REQUEST: ${cleanMessage}
+
+IMPORTANT INSTRUCTIONS:
+- Keep all 5 bullet points and the product description 
+- Only modify the specific part the user mentioned
+- If they want to change "the first bullet point" or "bullet 1", only update that bullet point
+- If they want to change a specific word or phrase, only change that while keeping everything else
+- Return the complete content with exactly 5 bullet points and 1 product description
+- Maintain the same format: "- **FEATURE NAME:** description" for each bullet point
+- Keep the same tone and style for unchanged content`;
+        } else {
+          // Default regeneration message for other agent types
+          finalMessage = `REGENERATE the ${agentNode.data.type} with a COMPLETELY NEW version based on the user's instructions. Current version: "${agentNode.data.draft}". User requirements: ${cleanMessage}. Create something different that incorporates their feedback.`;
+        }
+      } else {
+        finalMessage = cleanMessage;
+      }
 
       // Set node status to generating
       setNodes((nds: any) =>
@@ -860,7 +918,7 @@ function InnerCanvas({
                   ...node.data,
                   status: "generating",
                   generationProgress: {
-                    stage: "Refining thumbnail...",
+                    stage: agentNode.data.type === "hero-image" ? "Creating hero image..." : "Refining content...",
                     percent: 50
                   }
                 },
@@ -881,53 +939,60 @@ function InnerCanvas({
       // Call appropriate refine action based on agent type
       let result: any;
       
-      // For thumbnails with existing images, always use refinement (not just for regeneration)
-      if (agentNode.data.type === "thumbnail" && agentNode.data.thumbnailUrl) {
-        // Use thumbnail-specific refinement that can edit the existing image
-        console.log("[Canvas] Using thumbnail refinement with existing image");
-        console.log("[Canvas] Agent node data:", agentNode.data);
-        console.log("[Canvas] Clean message:", cleanMessage);
-        console.log("[Canvas] Is regeneration:", isRegeneration);
+      // For hero-image, use the exact same handleGenerate logic as the "Generate" button
+      if (agentNode.data.type === "hero-image") {
+        console.log("[Canvas] Hero image chat - using same handleGenerate function as initial generation");
         
-        // Update progress
-        setNodes((nds: any) =>
-          nds.map((node: any) =>
-            node.id === agentNode.id
-              ? {
-                  ...node,
-                  data: {
-                    ...node.data,
-                    generationProgress: {
-                      stage: "Analyzing current thumbnail...",
-                      percent: 30
-                    }
-                  },
-                }
-              : node
-          )
-        );
-        
-        result = await refineHeroImage({
-          agentId: agentNode.data.agentId as Id<"agents">,
-          currentImageUrl: agentNode.data.imageUrl,
-          userMessage: cleanMessage, // Use clean message, not the REGENERATE prefix
-          productId: videoNode?.data.productId as Id<"products"> | undefined,
-          profileData: userProfile ? {
-            brandName: userProfile.brandName,
-            productCategory: userProfile.productCategory,
-            niche: userProfile.niche,
-            tone: userProfile.tone,
-            targetAudience: userProfile.targetAudience,
-          } : undefined,
-        });
-        
-        // Create a response object matching refineContent format
-        result = {
-          response: result.concept,
-          updatedContent: result.concept,
-          imageUrl: result.imageUrl,
-          storageId: result.storageId,
+        // Create a dynamic response based on user's request
+        const getUserResponse = (message: string) => {
+          const lowerMsg = message.toLowerCase();
+          if (lowerMsg.includes('front')) return "Got it! Creating a front-facing shot now...";
+          if (lowerMsg.includes('angle') || lowerMsg.includes('side')) return "Got it! Changing the angle now...";
+          if (lowerMsg.includes('background')) return "Got it! Updating the background now...";
+          if (lowerMsg.includes('lighting')) return "Got it! Adjusting the lighting now...";
+          return "Got it! Creating an updated hero image now...";
         };
+
+        // Add immediate chat response
+        setChatMessages(prev => [...prev, {
+          id: `ai-${Date.now()}`,
+          role: "ai",
+          content: getUserResponse(cleanMessage),
+          timestamp: Date.now(),
+          agentId: agentNode.id,
+        }]);
+
+        try {
+          // Use the exact same handleGenerate function that works perfectly for initial generation
+          // This handles all the data gathering, product connections, and generation logic
+          await handleGenerate(agentNode.id, undefined, cleanMessage);
+          
+          // Add completion message after generation is done
+          setTimeout(() => {
+            setChatMessages(prev => [...prev, {
+              id: `ai-complete-${Date.now()}`,
+              role: "ai",
+              content: "✅ All set! New hero image generated.",
+              timestamp: Date.now(),
+              agentId: agentNode.id,
+            }]);
+          }, 500); // Small delay to ensure node update is visible first
+          
+          return;
+
+        } catch (error: any) {
+          console.error("[Canvas] Hero image generation error:", error);
+          
+          // Add error message to chat
+          setChatMessages(prev => [...prev, {
+            id: `ai-error-${Date.now()}`,
+            role: "ai",
+            content: `❌ Sorry, I encountered an error: ${error?.message || "Failed to process your request"}. Please try again or generate a new image if the issue persists.`,
+            timestamp: Date.now(),
+            agentId: agentNode.id,
+          }]);
+          return;
+        }
       } else {
         // Use regular text refinement for other agent types
         result = await refineContent({
@@ -959,7 +1024,7 @@ function InnerCanvas({
         agentId: agentNode.id,
       }]);
       
-      // Update node with new draft and thumbnail URL if applicable
+      // Update node with new draft and image URL if applicable
       setNodes((nds: any) =>
         nds.map((node: any) =>
           node.id === agentNode.id
@@ -967,9 +1032,9 @@ function InnerCanvas({
                 ...node,
                 data: {
                   ...node.data,
-                  draft: result?.updatedContent || result?.updatedDraft || node.data.draft,
+                  draft: agentNode.data.type === "hero-image" ? "" : (result?.updatedContent || result?.updatedDraft || node.data.draft),
                   status: "ready",
-                  ...(result?.imageUrl && { thumbnailUrl: result.imageUrl }),
+                  ...(result?.imageUrl && agentNode.data.type === "hero-image" ? { imageUrl: result.imageUrl } : { thumbnailUrl: result.imageUrl }),
                 },
               }
             : node
@@ -980,7 +1045,7 @@ function InnerCanvas({
       if (agentNode.data.type === "hero-image" && result?.imageUrl && agentNode.data.agentId) {
         await updateAgentDraft({
           id: agentNode.data.agentId as Id<"agents">,
-          draft: result?.updatedContent || result?.updatedDraft || agentNode.data.draft || "",
+          draft: "", // Don't save concept text for image agents - they only show images
           status: "ready",
           imageUrl: result.imageUrl,
           imageStorageId: result?.storageId as Id<"_storage"> | undefined,
@@ -1032,7 +1097,7 @@ function InnerCanvas({
       setChatMessages(prev => [...prev, {
         id: `ai-error-${Date.now()}`,
         role: "ai",
-        content: `❌ Sorry, I encountered an error: ${error.message || "Failed to process your request"}. Please try again or generate a new thumbnail if the issue persists.`,
+        content: `❌ Sorry, I encountered an error: ${error.message || "Failed to process your request"}. Please try again or generate a new image if the issue persists.`,
         timestamp: Date.now(),
         agentId: agentNode.id,
       }]);
@@ -1826,12 +1891,14 @@ function InnerCanvas({
       }
 
       // Create agent in database
+      console.log(`🏗️  Creating agent: type="${type}"`);
       createAgent({
         productId: productNode.data.productId as Id<"products">,
         type: type as "title" | "bullet-points" | "hero-image" | "lifestyle-image" | "infographic",
         canvasPosition: position,
       }).then((agentId) => {
         const nodeId = `agent_${type}_${agentId}`;
+        console.log(`✅ Agent created: nodeId="${nodeId}", type="${type}", agentId="${agentId}"`);
         const newNode: Node = {
           id: nodeId,
           type: "agent",
@@ -2702,11 +2769,11 @@ function InnerCanvas({
           isOpen={previewModalOpen}
           onClose={() => setPreviewModalOpen(false)}
           title={nodes.find((n: any) => n.type === 'agent' && n.data.type === 'title')?.data.draft || ''}
-          bulletPoints={nodes.find((n: any) => n.type === 'agent' && n.data.type === 'description')?.data.draft || ''}
-          productImages={nodes.find((n: any) => n.type === 'product')?.data.images || []}
-          heroImageUrl={nodes.find((n: any) => n.type === 'agent' && n.data.type === 'hero-image')?.data.imageUrl}
-          lifestyleImageUrl={nodes.find((n: any) => n.type === 'agent' && n.data.type === 'lifestyle-image')?.data.imageUrl}
-          infographicUrl={nodes.find((n: any) => n.type === 'agent' && n.data.type === 'infographic')?.data.imageUrl}
+          bulletPoints={nodes.find((n: any) => n.type === 'agent' && n.data.type === 'bullet-points')?.data.draft || ''}
+          productImages={nodes.find((n: any) => n.type === 'video')?.data.images || []}
+          heroImageUrl={nodes.find((n: any) => n.type === 'agent' && n.data.type === 'hero-image')?.data.imageUrl || nodes.find((n: any) => n.type === 'agent' && n.data.type === 'hero-image')?.data.thumbnailUrl}
+          lifestyleImageUrl={nodes.find((n: any) => n.type === 'agent' && n.data.type === 'lifestyle-image')?.data.imageUrl || nodes.find((n: any) => n.type === 'agent' && n.data.type === 'lifestyle-image')?.data.thumbnailUrl}
+          infographicUrl={nodes.find((n: any) => n.type === 'agent' && n.data.type === 'infographic')?.data.imageUrl || nodes.find((n: any) => n.type === 'agent' && n.data.type === 'infographic')?.data.thumbnailUrl}
           brandName={nodes.find((n: any) => n.type === 'brandKit')?.data.brandName || userProfile?.brandName || 'Your Brand'}
         />
         

@@ -70,6 +70,10 @@ export const generateContentSimple = action({
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) throw new Error("Unauthorized");
 
+    // CRITICAL DEBUG: Log at the very start to confirm function is called
+    console.log(`🚨 FUNCTION START - Agent Type: "${args.agentType}" - This should show in logs!`);
+    console.log(`🚨🚨🚨 CODE VERSION CHECK: If you see this, the new code is deployed! Agent: ${args.agentType} 🚨🚨🚨`);
+
     try {
       // If we have a productId, fetch the latest product data with features
       let productData = args.productData;
@@ -123,6 +127,39 @@ export const generateContentSimple = action({
         });
       }
 
+      // Log data availability for description generation - FORCE THIS TO ALWAYS RUN
+      console.log(`[Description Agent] DEBUGGING - Agent type is: "${args.agentType}"`);
+      if (args.agentType === 'bullet-points') {
+        console.log(`[Description Agent] Data availability:`, {
+          // Product Node data (PRIORITY)
+          hasProductName: !!productData.productName,
+          productName: productData.productName,
+          hasKeyFeatures: !!productData.keyFeatures,
+          keyFeatures: productData.keyFeatures,
+          hasTargetKeywords: !!productData.targetKeywords,
+          targetKeywords: productData.targetKeywords,
+          hasProductTargetAudience: !!productData.targetAudience,
+          productTargetAudience: productData.targetAudience,
+          // Brand Kit data (PRIORITY)
+          hasBrandKit: !!args.brandKitData,
+          brandKitData: args.brandKitData,
+          // Legacy database features (fallback)
+          hasDatabaseFeatures: !!productData.features?.length,
+          databaseFeaturesCount: productData.features?.length || 0,
+          // Connected agents
+          hasConnectedAgents: args.connectedAgentOutputs.length > 0,
+          // Profile data (fallback only)
+          hasProfile: !!args.profileData,
+          profileFallback: args.profileData ? {
+            brandName: args.profileData.brandName,
+            productCategory: args.profileData.productCategory,
+            targetAudience: args.profileData.targetAudience,
+          } : null
+        });
+      } else {
+        console.log(`[Description Agent] DEBUGGING - Not bullet-points, agent type is: "${args.agentType}"`);
+      }
+
       const prompt = buildHackathonPrompt(
         args.agentType,
         productData, // Use the fresh product data
@@ -139,17 +176,36 @@ export const generateContentSimple = action({
         console.log(`--- PROMPT END ---`);
       }
 
-      // Log if generating without features
-      if (!productData.features?.length) {
-        console.log(`Generating ${args.agentType} without product features - using title only`);
+      // DEBUG: Log the exact prompt being sent to AI for bullet-points generation
+      if (args.agentType === 'bullet-points') {
+        console.log(`[Description Agent] EXACT PROMPT BEING SENT TO AI:`);
+        console.log(`--- PROMPT START ---`);
+        console.log(prompt);
+        console.log(`--- PROMPT END ---`);
+      }
+
+      // Log product data availability
+      console.log(`[${args.agentType.toUpperCase()} Agent] Product data check:`, {
+        hasOldFeatures: !!productData.features?.length,
+        hasNewKeyFeatures: !!productData.keyFeatures,
+        hasProductName: !!productData.productName,
+        hasTargetKeywords: !!productData.targetKeywords,
+        hasTargetAudience: !!productData.targetAudience,
+        productData: productData
+      });
+      
+      if (!productData.features?.length && !productData.keyFeatures) {
+        console.log(`⚠️  ${args.agentType.toUpperCase()} AGENT: No product features found - using other available data`);
+      } else {
+        console.log(`✅ ${args.agentType.toUpperCase()} AGENT: Product features available - generating high-quality content`);
       }
 
       // Optimize generation parameters based on content type
       const generationParams = {
-        title: { temperature: 0.8, maxTokens: 100 },      // More creative titles
-        description: { temperature: 0.7, maxTokens: 150 }, // Concise 2-line benefits
-        thumbnail: { temperature: 0.9, maxTokens: 400 },   // Very creative visuals
-        tweets: { temperature: 0.8, maxTokens: 200 },      // Simple 2-tweet format
+        title: { temperature: 0.8, maxTokens: 100 },           // More creative titles
+        "bullet-points": { temperature: 0.7, maxTokens: 600 }, // 5 bullets + description
+        thumbnail: { temperature: 0.9, maxTokens: 400 },       // Very creative visuals
+        tweets: { temperature: 0.8, maxTokens: 200 },          // Simple 2-tweet format
       };
 
       const params = generationParams[args.agentType as keyof typeof generationParams] 
@@ -162,6 +218,16 @@ export const generateContentSimple = action({
         temperature: params.temperature,
         maxTokens: params.maxTokens,
       });
+
+      // DEBUG: Log the exact AI response for bullet-points
+      if (args.agentType === 'bullet-points') {
+        console.log(`[Description Agent] RAW AI RESPONSE:`);
+        console.log(`--- RESPONSE START ---`);
+        console.log(generatedContent);
+        console.log(`--- RESPONSE END ---`);
+        console.log(`[Description Agent] Response length: ${generatedContent.length} characters`);
+        console.log(`[Description Agent] First 200 chars: ${generatedContent.substring(0, 200)}...`);
+      }
 
       return { content: generatedContent, prompt };
     } catch (error) {
@@ -205,23 +271,44 @@ Output Format:
 Return **only** the final title as a single sentence in English (US). Do not add any commentary, notes, or surrounding text. Just the product title.  
 **Reminder:** Return only the title. No markdown, no formatting — just the raw string.`,
 
-    description: `You are a master at writing compelling 2-line YouTube descriptions that focus entirely on viewer benefits.
+    "bullet-points": `Act like a professional Amazon listing copywriter with expertise in Amazon SEO, consumer psychology, and compliance with Amazon US listing guidelines. Your role is to craft compelling, conversion-optimized bullet points and product descriptions that maximize customer engagement while adhering to Amazon's strict formatting requirements.
 
-Write EXACTLY 2 lines that tell viewers what they'll gain from watching:
-- Line 1: The specific skill, knowledge, or insight they'll gain
-- Line 2: The outcome or transformation they'll achieve
+Your task is to write exactly 5 Amazon bullet points and 1 product description paragraph based on specific product attributes. The content must be informative, persuasive, and SEO-enhanced without keyword stuffing or non-compliant claims.
 
-Rules:
-- Use "You'll learn/discover/master" language
-- Be specific about benefits (not vague promises)
-- NO timestamps, links, hashtags, or SEO keywords
-- NO "In this video" or "Watch to find out" phrases
-- Maximum 80 characters per line
-- Focus on VALUE, not features
+Objective:  
+Create exactly 5 bullet points and 1 product description that are compelling, clear, and formatted for maximum conversion. The content must meet Amazon's 2025 guidelines for bullet points and descriptions while targeting both Amazon's algorithm and customer engagement.
 
-Example format:
-Learn how to use AI tools to write JavaScript 10x faster and debug like a pro.
-You'll save hours of coding time and eliminate frustrating syntax errors forever.`,
+Step-by-Step Instructions:
+1. Use the **Brand Name** and **Product Name** to establish clear product identity.
+2. Transform **Key Features & Benefits** into compelling bullet points that highlight value propositions.
+3. Naturally incorporate **Target Keywords** for SEO without keyword stuffing or repetition.
+4. Match the writing style to the **Brand Tone of Voice** and speak directly to the **Target Audience**.
+5. Each bullet point should start with a feature name in **Title Case** followed by a colon and benefit explanation.
+6. Comply with **Amazon Bullet Point Rules**:
+   - Each bullet point: 140-200 characters maximum
+   - Format as sentence fragments (no ending punctuation)
+   - No ALL CAPS, emojis, or promotional language
+   - No competitor brand names, warranties, or shipping promises
+   - Focus on benefits, not just features
+7. For the product description:
+   - Write 1 cohesive paragraph with 3-6 sentences
+   - Use storytelling tone matching the brand voice
+   - Include sensory and emotional language
+   - Use <br> tags for line breaks if needed
+   - Avoid restricted terms and time-bound statements
+
+Example Outputs for Different Tones:
+**Professional:** 
+- **PREMIUM MATERIALS:** Constructed with high-grade stainless steel for durability and long-lasting performance in demanding environments
+- **ERGONOMIC DESIGN:** Comfort-grip handle reduces hand fatigue during extended use while maintaining precise control and stability
+
+**Playful:**
+- **FUN & FUNCTIONAL:** Bright colors and smooth operation make daily tasks enjoyable while delivering reliable results every time
+- **FAMILY FRIENDLY:** Safe design with rounded edges perfect for busy households with kids and pets
+
+Output Format:  
+Return exactly 5 bullet points (each starting with "- ") followed by one blank line, then exactly 1 product description paragraph. Do not add any commentary, headings, or surrounding text. Just the bullet points and description.  
+**Reminder:** Return only the bullet points and description. NO markdown formatting - specifically NO ** symbols, NO bold text, NO italics. Use plain text only with bullet point dashes.`,
 
     thumbnail: `You are a YouTube thumbnail psychology expert and visual marketing specialist. Your thumbnails consistently achieve 15%+ CTR.
 
@@ -457,11 +544,90 @@ function buildHackathonPrompt(
       prompt += `- Is between 80-120 characters for optimal performance\n\n`;
       
       return prompt;
-    } else if (agentType === 'description') {
-      prompt += `🎯 DESCRIPTION GENERATION FOCUS:\n`;
-      prompt += `- Extract ALL main points discussed in order\n`;
-      prompt += `- Identify natural timestamp breaks\n`;
-      prompt += `- Find quotable moments for engagement\n\n`;
+    } else if (agentType === 'bullet-points') {
+      // EXACT COPY of Title Generator logic - just changing the final prompt text
+      prompt += `\n🎯 PRODUCT INFORMATION FOR BULLET POINTS GENERATION:\n`;
+      
+      // Brand information from Brand Kit (PRIORITY) - EXACT SAME AS TITLE
+      if (brandKitData) {
+        prompt += `Brand Name: ${brandKitData.brandName}\n`;
+        prompt += `Brand Tone of Voice: ${brandKitData.brandVoice}\n`;
+      } else if (productData.brandInfo?.name) {
+        prompt += `Brand Name: ${productData.brandInfo.name}\n`;
+      } else if (profileData?.brandName) {
+         prompt += `Brand Name: ${profileData.brandName}\n`;
+         if (profileData.tone) {
+           prompt += `Brand Tone of Voice: ${profileData.tone}\n`;
+         }
+       }
+      
+      // Product Name from ProductNode (enhanced metadata) - EXACT SAME AS TITLE
+      if (productData.productName) {
+        prompt += `Product Name: ${productData.productName}\n`;
+      } else if (productData.title) {
+        prompt += `Product Name: ${productData.title}\n`;
+      }
+      
+      // Key Features from ProductNode - EXACT SAME AS TITLE
+      if (productData.keyFeatures) {
+        prompt += `Key Features: ${productData.keyFeatures}\n`;
+      } else if (productData.features && productData.features.length > 0) {
+        prompt += `Key Features: ${productData.features.join(', ')}\n`;
+      }
+      
+      // Target Keywords from ProductNode - EXACT SAME AS TITLE
+      if (productData.targetKeywords) {
+        prompt += `Target Keywords: ${productData.targetKeywords}\n`;
+      } else if (productData.keywords && productData.keywords.length > 0) {
+        prompt += `Target Keywords: ${productData.keywords.join(', ')}\n`;
+      }
+      
+      // Target Audience from ProductNode - EXACT SAME AS TITLE
+      if (productData.targetAudience) {
+        prompt += `Target Audience: ${productData.targetAudience}\n`;
+      } else if (profileData?.targetAudience) {
+        prompt += `Target Audience: ${profileData.targetAudience}\n`;
+      }
+      
+      // ONLY DIFFERENCE: Change the final instruction text from title to bullet points
+      prompt += `\n🚀 GENERATE AMAZON BULLET POINTS & DESCRIPTION:\n`;
+      prompt += `Using the product information above, create compelling Amazon listing content that:\n`;
+      prompt += `- Transform the key features into exactly 5 bullet points\n`;
+      prompt += `- Start each bullet with a feature name in Title Case followed by a colon\n`;
+      prompt += `- Include the target keywords naturally in the bullet points\n`;
+      prompt += `- Write in the specified brand voice tone\n`;
+      prompt += `- Appeal directly to the target audience's needs and pain points\n`;
+      prompt += `- Follow Amazon bullet point guidelines (140-200 characters each)\n`;
+      prompt += `- After the 5 bullet points, add one blank line\n`;
+      prompt += `- Then write exactly 1 product description paragraph (3-6 sentences)\n\n`;
+      
+      return prompt;
+    } else if (agentType === 'hero-image') {
+      prompt += `\n🚀 TRANSFORM SOURCE IMAGE INTO AMAZON HERO SHOT:\n`;
+      prompt += `You are a veteran e-commerce photographer who shoots Amazon MAIN images that dominate search results. Follow Amazon's image policy to the letter while maximizing click-through rate.\n\n`;
+      prompt += `Transform the user-supplied source_image into one perfect Amazon hero shot.\n`;
+      
+      // Include product context if available
+      if (productData.productName) {
+        prompt += `Product: ${productData.productName}\n`;
+      }
+      if (productData.keyFeatures) {
+        prompt += `Key features: ${productData.keyFeatures}\n`;
+      }
+      
+      prompt += `Angle: three-quarter (45°) front view\n`;
+      prompt += `Lighting: bright, even, pro-studio lighting\n`;
+      prompt += `Background: pure white (RGB 255,255,255)\n`;
+      prompt += `Shadow: soft, natural shadow directly beneath product\n\n`;
+      prompt += `Hard requirements:\n`;
+      prompt += `1. Show the entire product exactly as in source_image—no missing parts, no added items.\n`;
+      prompt += `2. Center the product and fill ~85 – 90 % of the frame.\n`;
+      prompt += `3. Background must be 100 % pure white—no props, text, logos, watermarks, gradients, or reflections.\n`;
+      prompt += `4. Keep colors true to the source; preserve material textures.\n`;
+      prompt += `5. Output one ultra-sharp, photorealistic square JPEG, ≥ 3000 × 3000 px.\n`;
+      prompt += `6. Subtle depth-of-field is OK, but all product edges stay crisp.\n\n`;
+      prompt += `Negative prompt: extra objects, packaging variations, people, text, watermark, illustration style, low-resolution, noise.\n\n`;
+      prompt += `Return exactly one compliant, high-impact image ready for Amazon upload.\n\n`;
     } else if (agentType === 'thumbnail') {
       prompt += `🎯 THUMBNAIL GENERATION FOCUS:\n`;
       prompt += `- Identify the most visually representable moment\n`;
