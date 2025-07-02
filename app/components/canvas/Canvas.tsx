@@ -166,6 +166,7 @@ function InnerCanvas({
   // Convex actions for AI
   const generateContent = useAction(api.aiHackathon.generateContentSimple);
   const generateHeroImage = useAction(api.heroImage.generateHeroImage);
+  const generateLifestyleImage = useAction(api.lifestyleImage.generateLifestyleImage);
   const refineContent = useAction(api.chat.refineContent);
   const refineHeroImage = useAction(api.heroImageRefine.refineHeroImage);
 
@@ -485,6 +486,120 @@ function InnerCanvas({
         if (!imageUrl) {
           toast.warning("Hero image concept created, but image generation was blocked by safety filters. Try uploading different images or adjusting your requirements.");
         }
+      } else if (agentNode.data.type === "lifestyle-image") {
+        // For lifestyle-image agent, extract product images from Product Image Node
+        console.log("[Canvas] Starting lifestyle image generation");
+        
+        // Check if we have product images from Product Image Node
+        let productImages: { dataUrl: string; timestamp?: number }[] = [];
+        
+        if (thumbnailImages && thumbnailImages.length > 0) {
+          // Use uploaded images if available
+          console.log("[Canvas] Using uploaded images:", thumbnailImages.length);
+          toast.info("Processing uploaded images for lifestyle image generation...");
+          
+          productImages = await Promise.all(
+            thumbnailImages.map(async (file, index) => {
+              const dataUrl = await new Promise<string>((resolve) => {
+                const reader = new FileReader();
+                reader.onloadend = () => resolve(reader.result as string);
+                reader.readAsDataURL(file);
+              });
+              return {
+                dataUrl,
+                timestamp: index, // Use index as timestamp for uploaded images
+              };
+            })
+          );
+        } else if (videoNode?.data.imageUrl) {
+          // Use product image from Product Image Node
+          console.log("[Canvas] Using product image from Product Image Node");
+          toast.info("Processing product image for lifestyle image generation...");
+          
+          productImages = [{
+            dataUrl: videoNode.data.imageUrl,
+            timestamp: 0,
+          }];
+        } else {
+          // No images available
+          toast.error("No product images available. Please upload a product image first.");
+          throw new Error("No product images available for lifestyle image generation.");
+        }
+        
+        console.log("[Canvas] Product images prepared:", productImages.length);
+        
+        // Update progress: Generating with AI
+        setNodes((nds: any) =>
+          nds.map((node: any) =>
+            node.id === nodeId
+              ? { 
+                  ...node, 
+                  data: { 
+                    ...node.data, 
+                    generationProgress: {
+                      stage: "Creating lifestyle scene...",
+                      percent: 60
+                    }
+                  } 
+                }
+              : node
+          )
+        );
+
+        // Generate lifestyle image with vision API
+        console.log("[Canvas] Calling generateLifestyleImage action with:", {
+          productId: videoNode?.data.productId,
+          imageCount: productImages.length,
+          hasProductData: !!productData,
+          hasFeatures: !!productData.features?.length,
+          connectedAgentsCount: connectedAgentOutputs.length,
+          hasProfile: !!profileData
+        });
+        
+        const lifestyleImageResult = await generateLifestyleImage({
+          agentType: "lifestyle-image",
+          productId: videoNode?.data.productId as Id<"products"> | undefined,
+          productImages: productImages,
+          productData,
+          connectedAgentOutputs,
+          profileData,
+          additionalContext,
+        });
+        
+        console.log("[Canvas] Lifestyle image generation completed");
+        console.log("[Canvas] Concept received:", lifestyleImageResult.concept.substring(0, 100) + "...");
+        console.log("[Canvas] Image URL received:", !!lifestyleImageResult.imageUrl);
+        console.log("[Canvas] Full lifestyle image URL:", lifestyleImageResult.imageUrl);
+        console.log("[Canvas] Storage ID received:", lifestyleImageResult.storageId);
+        
+        result = lifestyleImageResult.concept;
+        imageUrl = lifestyleImageResult.imageUrl;
+        imageStorageId = lifestyleImageResult.storageId;
+        
+        console.log("[Canvas] After assignment - imageUrl:", imageUrl);
+        console.log("[Canvas] After assignment - imageStorageId:", imageStorageId);
+        
+        // Store the prompt for lifestyle image too
+        if (lifestyleImageResult.prompt) {
+          setNodes((nds: any) =>
+            nds.map((node: any) =>
+              node.id === nodeId
+                ? { 
+                    ...node, 
+                    data: { 
+                      ...node.data, 
+                      lastPrompt: lifestyleImageResult.prompt
+                    } 
+                  }
+                : node
+            )
+          );
+        }
+        
+        // If no image was generated due to safety issues, inform the user
+        if (!imageUrl) {
+          toast.warning("Lifestyle image concept created, but image generation was blocked by safety filters. Try uploading different images or adjusting your requirements.");
+        }
       } else {
         // Update progress based on agent type
         const progressMessages = {
@@ -573,7 +688,14 @@ function InnerCanvas({
       console.log("[Canvas] Updating node with generated content");
       if (agentNode.data.type === "hero-image") {
         console.log("[Canvas] Hero image URL to save:", imageUrl ? "Present" : "Missing");
+      } else if (agentNode.data.type === "lifestyle-image") {
+        console.log("[Canvas] Lifestyle image URL to save:", imageUrl ? "Present" : "Missing");
+        console.log("[Canvas] Lifestyle image URL value:", imageUrl);
       }
+      
+      const isImageAgent = agentNode.data.type === "hero-image" || agentNode.data.type === "lifestyle-image";
+      
+      console.log("[Canvas] About to update node with imageUrl:", imageUrl);
       
       setNodes((nds: any) =>
         nds.map((node: any) =>
@@ -582,7 +704,7 @@ function InnerCanvas({
                 ...node,
                 data: {
                   ...node.data,
-                  draft: agentNode.data.type === "hero-image" ? "" : result, // Don't show concept text for image agents
+                  draft: isImageAgent ? "" : result, // Don't show concept text for image agents
                   imageUrl: imageUrl,
                   status: "ready",
                   generationProgress: undefined, // Clear progress when done
@@ -592,20 +714,30 @@ function InnerCanvas({
         )
       );
       
+      console.log("[Canvas] Node update completed");
+      
       // Save to database if the node has an agentId
       if (agentNode.data.agentId) {
+        console.log("[Canvas] Saving to database with imageUrl:", imageUrl);
+        console.log("[Canvas] Saving to database with storageId:", imageStorageId);
         await updateAgentDraft({
           id: agentNode.data.agentId as Id<"agents">,
-          draft: agentNode.data.type === "hero-image" ? "" : result, // Don't save concept text for image agents
+          draft: isImageAgent ? "" : result, // Don't save concept text for image agents
           status: "ready",
           imageUrl: imageUrl,
           imageStorageId: imageStorageId as Id<"_storage"> | undefined,
         });
+        console.log("[Canvas] Database save completed");
+      } else {
+        console.log("[Canvas] No agentId found, skipping database save");
       }
       
       if (agentNode.data.type === "hero-image" && imageUrl) {
         console.log("[Canvas] Hero image generation successful with image URL");
         toast.success("Hero image generated successfully! Click 'View' to see the image.");
+      } else if (agentNode.data.type === "lifestyle-image" && imageUrl) {
+        console.log("[Canvas] Lifestyle image generation successful with image URL");
+        toast.success("Lifestyle image generated successfully! Click 'View' to see the image.");
       } else {
         toast.success(`${agentNode.data.type} generated successfully!`);
       }
@@ -918,7 +1050,9 @@ IMPORTANT INSTRUCTIONS:
                   ...node.data,
                   status: "generating",
                   generationProgress: {
-                    stage: agentNode.data.type === "hero-image" ? "Creating hero image..." : "Refining content...",
+                    stage: agentNode.data.type === "hero-image" ? "Creating hero image..." : 
+                           agentNode.data.type === "lifestyle-image" ? "Creating lifestyle image..." : 
+                           "Refining content...",
                     percent: 50
                   }
                 },
@@ -993,6 +1127,63 @@ IMPORTANT INSTRUCTIONS:
           }]);
           return;
         }
+      } else if (agentNode.data.type === "lifestyle-image") {
+        console.log("[Canvas] Lifestyle image chat - using same handleGenerate function as initial generation");
+        
+        // Create a dynamic response based on user's request for lifestyle images
+        const getUserResponse = (message: string) => {
+          const lowerMsg = message.toLowerCase();
+          if (lowerMsg.includes('beach')) return "Got it! Creating a beach lifestyle scene now...";
+          if (lowerMsg.includes('kitchen')) return "Got it! Creating a kitchen lifestyle scene now...";
+          if (lowerMsg.includes('outdoor') || lowerMsg.includes('garden')) return "Got it! Creating an outdoor lifestyle scene now...";
+          if (lowerMsg.includes('gym') || lowerMsg.includes('fitness')) return "Got it! Creating a fitness lifestyle scene now...";
+          if (lowerMsg.includes('woman') || lowerMsg.includes('man')) return "Got it! Updating the person in the lifestyle scene now...";
+          if (lowerMsg.includes('scene') || lowerMsg.includes('setting')) return "Got it! Creating a new lifestyle setting now...";
+          return "Got it! Creating an updated lifestyle image now...";
+        };
+
+        // Add immediate chat response
+        setChatMessages(prev => [...prev, {
+          id: `ai-${Date.now()}`,
+          role: "ai",
+          content: getUserResponse(cleanMessage),
+          timestamp: Date.now(),
+          agentId: agentNode.id,
+        }]);
+
+        try {
+          // Use the exact same handleGenerate function that works perfectly for initial generation
+          // This handles all the data gathering, product connections, and generation logic
+          console.log("[Canvas] About to call handleGenerate for lifestyle-image chat");
+          await handleGenerate(agentNode.id, undefined, cleanMessage);
+          console.log("[Canvas] handleGenerate completed for lifestyle-image chat");
+          
+          // Add completion message after generation is done
+          setTimeout(() => {
+            setChatMessages(prev => [...prev, {
+              id: `ai-complete-${Date.now()}`,
+              role: "ai",
+              content: "✅ All set! New lifestyle image generated.",
+              timestamp: Date.now(),
+              agentId: agentNode.id,
+            }]);
+          }, 500); // Small delay to ensure node update is visible first
+          
+          return;
+
+        } catch (error: any) {
+          console.error("[Canvas] Lifestyle image generation error:", error);
+          
+          // Add error message to chat
+          setChatMessages(prev => [...prev, {
+            id: `ai-error-${Date.now()}`,
+            role: "ai",
+            content: `❌ Sorry, I encountered an error: ${error?.message || "Failed to process your request"}. Please try again or generate a new image if the issue persists.`,
+            timestamp: Date.now(),
+            agentId: agentNode.id,
+          }]);
+          return;
+        }
       } else {
         // Use regular text refinement for other agent types
         result = await refineContent({
@@ -1032,17 +1223,17 @@ IMPORTANT INSTRUCTIONS:
                 ...node,
                 data: {
                   ...node.data,
-                  draft: agentNode.data.type === "hero-image" ? "" : (result?.updatedContent || result?.updatedDraft || node.data.draft),
+                  draft: (agentNode.data.type === "hero-image" || agentNode.data.type === "lifestyle-image") ? "" : (result?.updatedContent || result?.updatedDraft || node.data.draft),
                   status: "ready",
-                  ...(result?.imageUrl && agentNode.data.type === "hero-image" ? { imageUrl: result.imageUrl } : { thumbnailUrl: result.imageUrl }),
+                  ...(result?.imageUrl && (agentNode.data.type === "hero-image" || agentNode.data.type === "lifestyle-image") ? { imageUrl: result.imageUrl } : { thumbnailUrl: result.imageUrl }),
                 },
               }
             : node
         )
       );
       
-      // Save to database if it's a hero-image with a new image
-      if (agentNode.data.type === "hero-image" && result?.imageUrl && agentNode.data.agentId) {
+      // Save to database if it's an image agent (hero-image or lifestyle-image) with a new image
+      if ((agentNode.data.type === "hero-image" || agentNode.data.type === "lifestyle-image") && result?.imageUrl && agentNode.data.agentId) {
         await updateAgentDraft({
           id: agentNode.data.agentId as Id<"agents">,
           draft: "", // Don't save concept text for image agents - they only show images
@@ -1055,10 +1246,16 @@ IMPORTANT INSTRUCTIONS:
       // Add a helpful tip if this was their first generation
       if (!agentNode.data.draft && !isRegeneration) {
         setTimeout(() => {
+          // Different tip messages for image agents vs text agents
+          const isImageAgent = agentNode.data.type === "hero-image" || agentNode.data.type === "lifestyle-image";
+          const tipContent = isImageAgent 
+            ? `💡 Tip: You can regenerate this ${agentNode.data.type} anytime by mentioning @${agentNode.data.type.toUpperCase()}_AGENT and describing what changes you want. For example: "@${agentNode.data.type.toUpperCase()}_AGENT try a different angle" or "@${agentNode.data.type.toUpperCase()}_AGENT ${agentNode.data.type === "lifestyle-image" ? "show it in a kitchen setting" : "with better lighting"}"`
+            : `💡 Tip: You can regenerate this ${agentNode.data.type} anytime by mentioning @${agentNode.data.type.toUpperCase()}_AGENT and describing what changes you want. For example: "@${agentNode.data.type.toUpperCase()}_AGENT make it more casual" or "@${agentNode.data.type.toUpperCase()}_AGENT try again with a focus on benefits"`;
+          
           setChatMessages(prev => [...prev, {
             id: `tip-${Date.now()}`,
             role: "ai",
-            content: `💡 Tip: You can regenerate this ${agentNode.data.type} anytime by mentioning @${agentNode.data.type.toUpperCase()}_AGENT and describing what changes you want. For example: "@${agentNode.data.type.toUpperCase()}_AGENT make it more casual" or "@${agentNode.data.type.toUpperCase()}_AGENT try again with a focus on benefits"`,
+            content: tipContent,
             timestamp: Date.now(),
             agentId: agentNode.id,
           }]);

@@ -77,7 +77,7 @@ export function ContentModal({ isOpen, onClose, nodeData, onUpdate, productData,
 
   const handleCopy = async () => {
     // For image types, copy the image URL instead of text content
-    if (nodeData?.type === "hero-image" && (nodeData.imageUrl || nodeData.thumbnailUrl)) {
+    if ((nodeData?.type === "hero-image" || nodeData?.type === "lifestyle-image") && (nodeData.imageUrl || nodeData.thumbnailUrl)) {
       await navigator.clipboard.writeText(nodeData.imageUrl || nodeData.thumbnailUrl || "");
       setCopied(true);
       toast.success("Image URL copied to clipboard!");
@@ -122,21 +122,31 @@ export function ContentModal({ isOpen, onClose, nodeData, onUpdate, productData,
 
   const showTabs = nodeData.type === "title" || nodeData.type === "description" || nodeData.type === "bullet-points";
 
-  // Show preview modal for hero images
-  if (showPreview && nodeData.type === "hero-image") {
+  // Show preview modal for image agents (hero and lifestyle)
+  if (showPreview && (nodeData.type === "hero-image" || nodeData.type === "lifestyle-image")) {
+    const isHeroImage = nodeData.type === "hero-image";
+    const isLifestyleImage = nodeData.type === "lifestyle-image";
+    
     return (
       <Dialog open={isOpen} onOpenChange={onClose}>
         <DialogContent className="!max-w-[56vw] !w-[56vw] min-w-[800px] max-h-[90vh] overflow-hidden p-0">
           <DialogHeader className="px-6 pt-6 pb-4 border-b">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <div className="p-2 rounded-lg bg-purple-100 text-purple-600 dark:bg-purple-900/20 dark:text-purple-400">
+                <div className={cn(
+                  "p-2 rounded-lg",
+                  isHeroImage ? "bg-purple-100 text-purple-600 dark:bg-purple-900/20 dark:text-purple-400" :
+                  "bg-yellow-100 text-yellow-600 dark:bg-yellow-900/20 dark:text-yellow-400"
+                )}>
                   <Eye className="h-5 w-5" />
                 </div>
                 <div>
                   <DialogTitle className="text-xl">Amazon Preview</DialogTitle>
                   <p className="text-sm text-muted-foreground mt-0.5">
-                    See how your hero image looks in an Amazon listing
+                    {isHeroImage 
+                      ? "See how your hero image looks in an Amazon listing"
+                      : "See how your lifestyle image looks in an Amazon listing"
+                    }
                   </p>
                 </div>
               </div>
@@ -150,8 +160,8 @@ export function ContentModal({ isOpen, onClose, nodeData, onUpdate, productData,
               title={productData?.title || "Product Title"}
               bulletPoints={productData?.bulletPoints || ""}
               productImages={productData?.productImages || []}
-              heroImageUrl={nodeData.imageUrl || nodeData.thumbnailUrl}
-              lifestyleImageUrl={productData?.lifestyleImageUrl}
+              heroImageUrl={isHeroImage ? (nodeData.imageUrl || nodeData.thumbnailUrl) : productData?.heroImageUrl}
+              lifestyleImageUrl={isLifestyleImage ? (nodeData.imageUrl || nodeData.thumbnailUrl) : productData?.lifestyleImageUrl}
               infographicUrl={productData?.infographicUrl}
               brandName={brandData?.brandName || "Your Brand"}
             />
@@ -176,6 +186,7 @@ export function ContentModal({ isOpen, onClose, nodeData, onUpdate, productData,
                 nodeData.type === "title" ? "bg-blue-100 text-blue-600 dark:bg-blue-900/20 dark:text-blue-400" :
                 (nodeData.type === "description" || nodeData.type === "bullet-points") ? "bg-green-100 text-green-600 dark:bg-green-900/20 dark:text-green-400" :
                 (nodeData.type === "hero-image" || nodeData.type === "thumbnail") ? "bg-purple-100 text-purple-600 dark:bg-purple-900/20 dark:text-purple-400" :
+                nodeData.type === "lifestyle-image" ? "bg-yellow-100 text-yellow-600 dark:bg-yellow-900/20 dark:text-yellow-400" :
                 "bg-orange-100 text-orange-600 dark:bg-orange-900/20 dark:text-orange-400"
               )}>
                 {icons[nodeData.type as keyof typeof icons]}
@@ -191,7 +202,7 @@ export function ContentModal({ isOpen, onClose, nodeData, onUpdate, productData,
               </div>
             </div>
             <div className="flex items-center gap-2">
-              {nodeData.type === "hero-image" && (
+              {(nodeData.type === "hero-image" || nodeData.type === "lifestyle-image") && (
                 <Button
                   variant="outline"
                   size="sm"
@@ -216,7 +227,7 @@ export function ContentModal({ isOpen, onClose, nodeData, onUpdate, productData,
                 ) : (
                   <>
                     <Copy className="h-4 w-4" />
-                    {nodeData.type === "hero-image" ? "Copy URL" : "Copy"}
+                    {(nodeData.type === "hero-image" || nodeData.type === "lifestyle-image") ? "Copy URL" : "Copy"}
                   </>
                 )}
               </Button>

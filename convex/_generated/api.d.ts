@@ -18,6 +18,7 @@ import type * as files from "../files.js";
 import type * as heroImage from "../heroImage.js";
 import type * as heroImageRefine from "../heroImageRefine.js";
 import type * as http from "../http.js";
+import type * as lifestyleImage from "../lifestyleImage.js";
 import type * as products from "../products.js";
 import type * as profiles from "../profiles.js";
 import type * as projects from "../projects.js";
@@ -50,6 +51,7 @@ declare const fullApi: ApiFromModules<{
   heroImage: typeof heroImage;
   heroImageRefine: typeof heroImageRefine;
   http: typeof http;
+  lifestyleImage: typeof lifestyleImage;
   products: typeof products;
   profiles: typeof profiles;
   projects: typeof projects;

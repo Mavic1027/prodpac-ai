@@ -628,6 +628,82 @@ function buildHackathonPrompt(
       prompt += `6. Subtle depth-of-field is OK, but all product edges stay crisp.\n\n`;
       prompt += `Negative prompt: extra objects, packaging variations, people, text, watermark, illustration style, low-resolution, noise.\n\n`;
       prompt += `Return exactly one compliant, high-impact image ready for Amazon upload.\n\n`;
+    } else if (agentType === 'lifestyle-image') {
+      prompt += `\n🎯 PRODUCT INFORMATION FOR LIFESTYLE IMAGE GENERATION:\n`;
+      
+      // Product Name from ProductNode (required input)
+      let productName = '';
+      if (productData.productName) {
+        productName = productData.productName;
+        prompt += `Product Name: ${productData.productName}\n`;
+      } else if (productData.title) {
+        productName = productData.title;
+        prompt += `Product Name: ${productData.title}\n`;
+      }
+      
+      // Key Features from ProductNode (required input)
+      let keyFeatures = '';
+      if (productData.keyFeatures) {
+        keyFeatures = productData.keyFeatures;
+        prompt += `Key Features: ${productData.keyFeatures}\n`;
+      } else if (productData.features && productData.features.length > 0) {
+        keyFeatures = productData.features.join(', ');
+        prompt += `Key Features: ${productData.features.join(', ')}\n`;
+      }
+      
+      // Target Audience from ProductNode (required input)
+      let targetAudience = '';
+      if (productData.targetAudience) {
+        targetAudience = productData.targetAudience;
+        prompt += `Target Audience: ${productData.targetAudience}\n`;
+      } else if (profileData?.targetAudience) {
+        targetAudience = profileData.targetAudience;
+        prompt += `Target Audience: ${profileData.targetAudience}\n`;
+      }
+      
+      // Product Category from Profile (required input)
+      let productCategory = '';
+      if (profileData?.productCategory) {
+        productCategory = profileData.productCategory;
+        prompt += `Product Category: ${profileData.productCategory}\n`;
+      }
+      
+      prompt += `\n🚀 GENERATE AMAZON LIFESTYLE IMAGE PROMPT:\n\n`;
+      
+      // User's exact prompt template with variable substitution
+      prompt += `/* SYSTEM */\n`;
+      prompt += `You are a senior e-commerce photographer who creates Amazon LIFESTYLE images that (1) boost conversion and (2) deliver crystal-clear visual data to Amazon's Rufus AI. Follow Amazon image rules; keep scenes authentic, photorealistic, and information-rich—no text overlays or brand-name props.\n\n`;
+      
+      prompt += `/* USER */\n`;
+      prompt += `Generate one high-resolution lifestyle photo using the details below.\n\n`;
+      
+      prompt += `Product (reference image): {{source_image}}      ←–– exact user uploaded product image, do not alter\n`;
+      prompt += `Product name: **${productName}**\n`;
+      prompt += `Key features: ${keyFeatures}\n`;
+      prompt += `Target audience: ${targetAudience}                ←–– ex: "health-conscious moms"\n`;
+      prompt += `Product category: ${productCategory}              ←–– ex: "Lawn & Garden"\n\n`;
+      
+      prompt += `**Scene guidance**\n`;
+      prompt += `• Pick a realistic environment that naturally fits the product category.\n`;
+      prompt += `  – Kitchen / dining area for Home & Kitchen\n`;
+      prompt += `  – Backyard / lawn for Lawn & Garden\n`;
+      prompt += `  – Gym / trail for Sports & Outdoors\n`;
+      prompt += `  – …(adapt as needed)\n`;
+      prompt += `• Place a ${targetAudience} model using or interacting with the product in a way that spotlights at least one key feature.\n`;
+      prompt += `• Add only props that reinforce those features (e.g., gardening gloves beside a lawn tool).\n\n`;
+      
+      prompt += `**Hard requirements**\n`;
+      prompt += `1. Product looks identical to {{source_image}}—no extra parts, no missing details, true colors.\n`;
+      prompt += `2. Main subject: product + user; keep both fully visible and in clear focus.\n`;
+      prompt += `3. Lighting: natural and flattering for the setting (golden-hour sun for outdoors, soft window light for indoors). Avoid harsh shadows.\n`;
+      prompt += `4. Composition: rule of thirds or centered—whichever best emphasizes product use.\n`;
+      prompt += `5. Resolution ≥ 3000 × 3000 px, photorealistic, DSLR-level detail. Subtle depth-of-field OK, but product edges must stay sharp.\n`;
+      prompt += `6. Pure lifestyle photo only—**no** on-image text, logos, watermarks, or unrelated items.\n`;
+      prompt += `7. Deliver one square JPEG.\n\n`;
+      
+      prompt += `The final image should instantly help shoppers (and Rufus) understand **who** it's for, **where** it's used, and **why** It matters.\n\n`;
+      
+      return prompt;
     } else if (agentType === 'thumbnail') {
       prompt += `🎯 THUMBNAIL GENERATION FOCUS:\n`;
       prompt += `- Identify the most visually representable moment\n`;
