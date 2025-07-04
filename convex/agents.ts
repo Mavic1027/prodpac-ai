@@ -31,13 +31,17 @@ export const create = mutation({
       throw new Error("Product must belong to a project");
     }
 
+    // CRITICAL: Initialize connections immediately with the product ID
+    // This ensures blank nodes maintain their connections after refresh
+    const initialConnections = [args.productId];
+
     return await ctx.db.insert("agents", {
       productId: args.productId,
       userId,
       projectId: product.projectId,
       type: args.type,
       draft: "",
-      connections: [],
+      connections: initialConnections,
       chatHistory: [],
       canvasPosition: args.canvasPosition,
       status: "idle",

@@ -151,6 +151,14 @@ export const AgentNode = memo(({ data, selected, id }: ExtendedNodeProps) => {
           style={{ top: '50%' }}
         />
         
+        <Handle
+          type="source"
+          position={Position.Right}
+          id="agent-output"
+          className={`!w-3 !h-3 !bg-gradient-to-r ${config.gradient} !border-2 !border-background`}
+          style={{ top: '50%' }}
+        />
+        
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-3">
             <div className={`p-2 rounded-lg bg-gradient-to-br ${config.gradient} backdrop-blur-sm`}>

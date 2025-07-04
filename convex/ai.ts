@@ -126,6 +126,8 @@ export const refineContent = action({
       keyFeatures: v.optional(v.string()),
       targetKeywords: v.optional(v.string()),
       targetAudience: v.optional(v.string()),
+      customTargetAudience: v.optional(v.string()),
+      productCategory: v.optional(v.string()),
     })),
     brandKitData: v.optional(v.object({
       brandName: v.string(),
@@ -281,6 +283,8 @@ function buildPrompt(
     keyFeatures?: string;
     targetKeywords?: string;
     targetAudience?: string;
+    customTargetAudience?: string;
+    productCategory?: string;
   },
   connectedOutputs: Array<{ type: string; content: string }>,
   profileData?: {

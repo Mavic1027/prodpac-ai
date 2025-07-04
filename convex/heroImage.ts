@@ -27,6 +27,8 @@ function buildHackathonPrompt(
     keyFeatures?: string;
     targetKeywords?: string;
     targetAudience?: string;
+    customTargetAudience?: string;
+    productCategory?: string;
   },
   connectedOutputs: Array<{ type: string; content: string }>,
   profileData?: {
@@ -134,8 +136,10 @@ function buildHackathonPrompt(
         prompt += `Target Keywords: ${productData.keywords.join(', ')}\n`;
       }
       
-      // Target Audience from ProductNode - EXACT SAME AS TITLE
-      if (productData.targetAudience) {
+      // Target Audience from ProductNode (with custom audience priority) - EXACT SAME AS TITLE
+      if (productData.targetAudience === "Custom" && productData.customTargetAudience) {
+        prompt += `Target Audience: ${productData.customTargetAudience}\n`;
+      } else if (productData.targetAudience) {
         prompt += `Target Audience: ${productData.targetAudience}\n`;
       } else if (profileData?.targetAudience) {
         prompt += `Target Audience: ${profileData.targetAudience}\n`;
@@ -244,6 +248,8 @@ export const generateHeroImage = action({
       keyFeatures: v.optional(v.string()),
       targetKeywords: v.optional(v.string()),
       targetAudience: v.optional(v.string()),
+      customTargetAudience: v.optional(v.string()),
+      productCategory: v.optional(v.string()),
     }),
     connectedAgentOutputs: v.array(
       v.object({
@@ -314,6 +320,8 @@ export const generateHeroImage = action({
             keyFeatures: freshProductData.keyFeatures || args.productData.keyFeatures,
             targetKeywords: freshProductData.targetKeywords || args.productData.targetKeywords,
             targetAudience: freshProductData.targetAudience || args.productData.targetAudience,
+            customTargetAudience: freshProductData.customTargetAudience || args.productData.customTargetAudience,
+            productCategory: freshProductData.productCategory || args.productData.productCategory,
           };
         }
       }

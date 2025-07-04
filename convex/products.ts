@@ -271,6 +271,8 @@ export const getWithFeatures = query({
       keyFeatures: product.keyFeatures,
       targetKeywords: product.targetKeywords,
       targetAudience: product.targetAudience,
+      customTargetAudience: product.customTargetAudience,
+      productCategory: product.productCategory, // ✅ FIXED: Added missing productCategory
     };
   },
 });

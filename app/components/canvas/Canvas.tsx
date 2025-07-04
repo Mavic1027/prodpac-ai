@@ -13,6 +13,7 @@ import { extractVideoMetadata } from "~/lib/video-metadata";
 
 import { compressAudioFile, isFileTooLarge, getFileSizeMB } from "~/lib/audio-compression";
 import { AgentNode } from "./AgentNode";
+import { AgentPicker } from "./AgentPicker";
 import { ContentModal } from "./ContentModal";
 import { DeleteConfirmationDialog } from "./DeleteConfirmationDialog";
 import { FloatingChat } from "./FloatingChat";
@@ -121,9 +122,15 @@ function InnerCanvas({
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
   const [copiedShareLink, setCopiedShareLink] = useState(false);
   
+  // Phase 2: Agent Picker state for pull-to-spawn
+  const [agentPickerVisible, setAgentPickerVisible] = useState(false);
+  const [agentPickerPosition, setAgentPickerPosition] = useState({ x: 0, y: 0 });
+  const [dragFromNodeId, setDragFromNodeId] = useState<string | null>(null);
+  
   // Use refs to access current values in callbacks
   const nodesRef = useRef(nodes);
   const edgesRef = useRef(edges);
+  const connectionStartRef = useRef<{ nodeId: string; handleId: string } | null>(null);
   
   // Keep refs updated
   useEffect(() => {
@@ -215,21 +222,26 @@ function InnerCanvas({
         });
       }
       
-      // Find connected video node
-      const connectedVideoEdge = edgesRef.current.find((e: any) => e.target === nodeId && e.source?.includes('video'));
-      const videoNode = connectedVideoEdge ? nodesRef.current.find((n: any) => n.id === connectedVideoEdge.source) : null;
+      // ✅ ALWAYS find Product Image Node and Brand Kit Node directly (ignoring edges for data consistency)
+      // This ensures every agent gets the same product/brand context regardless of visual connections
+      const videoNode = nodesRef.current.find((n: any) => n.type === 'video');
+      const brandKitNode = nodesRef.current.find((n: any) => n.type === 'brandKit');
       
-      // Find connected brand kit node
-      const connectedBrandKitEdge = edgesRef.current.find((e: any) => e.target === nodeId && e.source?.startsWith('brandkit'));
-      const brandKitNode = connectedBrandKitEdge ? nodesRef.current.find((n: any) => n.id === connectedBrandKitEdge.source) : null;
-      console.error("[Canvas] Brand kit connection check:", {
+      // Validate that Product Image Node exists (required for all agents)
+      if (!videoNode) {
+        toast.error("Product Image Node not found! Please add a product image first.");
+        console.error("[Canvas] No Product Image Node found for agent generation");
+        return;
+      }
+      
+      console.log("[Canvas] ✅ Direct node lookup (ignoring edges for data consistency):", {
         nodeId,
-        hasEdges: edgesRef.current.length,
-        brandKitEdge: connectedBrandKitEdge,
-        brandKitNode: brandKitNode?.id,
-        brandKitData: brandKitNode?.data,
+        foundVideoNode: !!videoNode,
+        foundBrandKitNode: !!brandKitNode,
+        videoNodeId: videoNode?.id,
+        brandKitNodeId: brandKitNode?.id,
         projectBrandKits: projectBrandKits,
-        allEdges: edgesRef.current.map((e: any) => ({ source: e.source, target: e.target }))
+        message: "Every agent now gets consistent Product + Brand Kit data regardless of visual connections"
       });
       
       // Find other connected agent nodes
@@ -256,7 +268,7 @@ function InnerCanvas({
         )
       );
 
-      // Prepare data for AI generation
+      // Prepare data for AI generation (videoNode is guaranteed to exist from validation above)
       let productData: { 
         title?: string; 
         features?: string[];
@@ -268,8 +280,10 @@ function InnerCanvas({
         keyFeatures?: string;
         targetKeywords?: string;
         targetAudience?: string;
+        customTargetAudience?: string;
+        productCategory?: string;
       } = {};
-      if (videoNode && videoNode.data.productId) {
+      if (videoNode.data.productId) {
         // Fetch the product with metadata from database
         const product = projectProducts?.find((p: any) => p._id === videoNode.data.productId);
         productData = {
@@ -283,6 +297,8 @@ function InnerCanvas({
           keyFeatures: videoNode.data.keyFeatures as string,
           targetKeywords: videoNode.data.targetKeywords as string,
           targetAudience: videoNode.data.targetAudience as string,
+          customTargetAudience: videoNode.data.customTargetAudience as string,
+          productCategory: videoNode.data.productCategory as string,
         };
         
         console.log("[Canvas] Product data prepared:", {
@@ -306,37 +322,26 @@ function InnerCanvas({
         content: (n!.data.draft || "") as string,
       }));
       
-      // Prepare brand kit data if connected - fetch from database instead of node data
+      // ✅ Prepare brand kit data - ALWAYS use project brand kit if available (ignoring edges)
       let brandKitData: any = null;
       
-      // FIRST: Check if there's a brand kit connection via edges
-      const hasBrandKitConnection = brandKitNode !== null;
-      
-      // SECOND: If no direct connection, check if brand kit exists in project and agent is connected to product
-      const hasProductConnection = videoNode !== null;
-      const projectHasBrandKit = projectBrandKits !== null && projectBrandKits !== undefined;
-      
-      console.log("[Canvas] Brand Kit connection analysis:", {
-        hasBrandKitConnection,
-        hasProductConnection, 
-        projectHasBrandKit,
-        brandKitNodeId: brandKitNode?.id,
-        videoNodeId: videoNode?.id,
-        agentNodeId: nodeId
+      console.log("[Canvas] Brand Kit data analysis:", {
+        hasBrandKitNode: !!brandKitNode,
+        hasProjectBrandKits: !!projectBrandKits,
+        agentNodeId: nodeId,
+        message: "Always using project Brand Kit data when available for consistent branding"
       });
       
-      // Use brand kit data if either:
-      // 1. Brand kit is directly connected to agent, OR
-      // 2. Agent is connected to product AND project has a brand kit (workflow: Product -> Agent, with Brand Kit in project)
-      if ((hasBrandKitConnection || (hasProductConnection && projectHasBrandKit)) && projectBrandKits) {
+      // Use brand kit data from project if available (consistent for all agents)
+      if (projectBrandKits) {
         brandKitData = {
           brandName: projectBrandKits.brandName,
           colorPalette: projectBrandKits.colorPalette,
           brandVoice: projectBrandKits.brandVoice
         };
-        console.log("[Canvas] Using Brand Kit data:", brandKitData);
+        console.log("[Canvas] ✅ Using Brand Kit data for consistent branding:", brandKitData);
       } else {
-        console.log("[Canvas] No Brand Kit data available for this agent");
+        console.log("[Canvas] No Brand Kit data available - will use profile fallback");
       }
       
       // Use real user profile data or fallback to defaults
@@ -402,7 +407,7 @@ function InnerCanvas({
               };
             })
           );
-        } else if (videoNode?.data.imageUrl) {
+        } else if (videoNode.data.imageUrl) {
           // Use product image from Product Image Node
           console.log("[Canvas] Using product image from Product Image Node");
           toast.info("Processing product image for hero image generation...");
@@ -439,7 +444,7 @@ function InnerCanvas({
 
         // Generate hero image with vision API
         console.log("[Canvas] Calling generateHeroImage action with:", {
-          productId: videoNode?.data.productId,
+          productId: videoNode.data.productId,
           imageCount: productImages.length,
           hasProductData: !!productData,
           hasFeatures: !!productData.features?.length,
@@ -449,7 +454,7 @@ function InnerCanvas({
         
         const heroImageResult = await generateHeroImage({
           agentType: "hero-image",
-          productId: videoNode?.data.productId as Id<"products"> | undefined,
+          productId: videoNode.data.productId as Id<"products"> | undefined,
           productImages: productImages,
           productData,
           connectedAgentOutputs,
@@ -511,7 +516,7 @@ function InnerCanvas({
               };
             })
           );
-        } else if (videoNode?.data.imageUrl) {
+        } else if (videoNode.data.imageUrl) {
           // Use product image from Product Image Node
           console.log("[Canvas] Using product image from Product Image Node");
           toast.info("Processing product image for lifestyle image generation...");
@@ -548,7 +553,7 @@ function InnerCanvas({
 
         // Generate lifestyle image with vision API
         console.log("[Canvas] Calling generateLifestyleImage action with:", {
-          productId: videoNode?.data.productId,
+          productId: videoNode.data.productId,
           imageCount: productImages.length,
           hasProductData: !!productData,
           hasFeatures: !!productData.features?.length,
@@ -558,7 +563,7 @@ function InnerCanvas({
         
         const lifestyleImageResult = await generateLifestyleImage({
           agentType: "lifestyle-image",
-          productId: videoNode?.data.productId as Id<"products"> | undefined,
+          productId: videoNode.data.productId as Id<"products"> | undefined,
           productImages: productImages,
           productData,
           connectedAgentOutputs,
@@ -840,10 +845,17 @@ function InnerCanvas({
     }
   }, []);
 
+  // Generate unique nicknames for chat system
+  const generateAgentNickname = useCallback((agentType: string, existingNodes: any[]) => {
+    const sameTypeAgents = existingNodes.filter((n: any) => n.type === 'agent' && n.data.type === agentType);
+    const instanceNumber = sameTypeAgents.length + 1; // +1 because we're adding a new agent
+    return instanceNumber === 1 ? `${agentType.toUpperCase()}_AGENT` : `${agentType.toUpperCase()}_AGENT_${instanceNumber}`;
+  }, []);
+
   // Handle chat messages with @mentions
   const handleChatMessage = useCallback(async (message: string) => {
-    // Extract @mention from message - handle various formats
-    const mentionRegex = /@([\w-]+)[\s_]?(?:AGENT|Agent|agent)?/gi;
+    // Extract @mention from message - handle various formats (now supports numbered nicknames)
+    const mentionRegex = /@([\w-]+(?:_\d+)?)[\s_]?(?:AGENT|Agent|agent)?/gi;
     const match = message.match(mentionRegex);
     
     if (!match) {
@@ -867,23 +879,33 @@ function InnerCanvas({
       return;
     }
     
-    // Find the agent node based on the mention
-    const agentType = match[0]
+    // Find the agent node based on the numbered mention
+    const mentionText = match[0]
       .replace(/@/gi, "")
       .replace(/[\s_]?(?:AGENT|Agent|agent)/gi, "")
-      .toLowerCase()
       .trim();
     
-    // DEBUG: Log what we're looking for
-    console.log(`🔍 Chat: Looking for agent with type: "${agentType}"`);
-    console.log(`🔍 Chat: Available nodes:`, nodesRef.current.map((n: any) => ({
-      id: n.id,
-      type: n.type,
-      dataType: n.data?.type,
-      hasAgentId: !!n.data?.agentId
-    })));
+    // Parse agent type and instance number (e.g., "TITLE_2" -> type: "title", instance: 2)
+    const mentionParts = mentionText.toLowerCase().split('_');
+    const agentType = mentionParts[0];
+    const instanceNumber = mentionParts.length > 1 && !isNaN(Number(mentionParts[mentionParts.length - 1]))
+      ? Number(mentionParts[mentionParts.length - 1]) 
+      : 1;
     
-    const agentNode = nodesRef.current.find((n: any) => n.type === "agent" && n.data.type === agentType);
+    // DEBUG: Log what we're looking for
+    console.log(`🔍 Chat: Looking for agent type: "${agentType}", instance: ${instanceNumber}`);
+    console.log(`🔍 Chat: Available agents:`, nodesRef.current
+      .filter((n: any) => n.type === "agent")
+      .map((n: any) => ({
+        id: n.id,
+        type: n.data?.type,
+        nickname: n.data?.nickname,
+        hasAgentId: !!n.data?.agentId
+      })));
+    
+    // Find agents of the same type and get the nth instance
+    const sameTypeAgents = nodesRef.current.filter((n: any) => n.type === "agent" && n.data.type === agentType);
+    const agentNode = sameTypeAgents[instanceNumber - 1]; // Convert to 0-based index
     
     console.log(`🔍 Chat: Found agent node:`, agentNode ? {
       id: agentNode.id,
@@ -902,10 +924,20 @@ function InnerCanvas({
       }]);
       
       setTimeout(() => {
+        // Show available agents with their nicknames
+        const availableAgents = nodesRef.current
+          .filter((n: any) => n.type === "agent" && n.data.agentId)
+          .map((n: any) => n.data.nickname || `${n.data.type.toUpperCase()}_AGENT`)
+          .join(", ");
+        
+        const responseMessage = availableAgents 
+          ? `Agent not found. Available agents: ${availableAgents}`
+          : `No agents found in the canvas. Please add an agent first.`;
+        
         setChatMessages(prev => [...prev, {
           id: `ai-${Date.now()}`,
           role: "ai",
-          content: `No ${agentType} agent found in the canvas. Please add one first.`,
+          content: responseMessage,
           timestamp: Date.now(),
         }]);
       }, 500);
@@ -1246,11 +1278,12 @@ IMPORTANT INSTRUCTIONS:
       // Add a helpful tip if this was their first generation
       if (!agentNode.data.draft && !isRegeneration) {
         setTimeout(() => {
-          // Different tip messages for image agents vs text agents
+          // Different tip messages for image agents vs text agents (now using unique nicknames)
+          const nickname = agentNode.data.nickname || `${agentNode.data.type.toUpperCase()}_AGENT`;
           const isImageAgent = agentNode.data.type === "hero-image" || agentNode.data.type === "lifestyle-image";
           const tipContent = isImageAgent 
-            ? `💡 Tip: You can regenerate this ${agentNode.data.type} anytime by mentioning @${agentNode.data.type.toUpperCase()}_AGENT and describing what changes you want. For example: "@${agentNode.data.type.toUpperCase()}_AGENT try a different angle" or "@${agentNode.data.type.toUpperCase()}_AGENT ${agentNode.data.type === "lifestyle-image" ? "show it in a kitchen setting" : "with better lighting"}"`
-            : `💡 Tip: You can regenerate this ${agentNode.data.type} anytime by mentioning @${agentNode.data.type.toUpperCase()}_AGENT and describing what changes you want. For example: "@${agentNode.data.type.toUpperCase()}_AGENT make it more casual" or "@${agentNode.data.type.toUpperCase()}_AGENT try again with a focus on benefits"`;
+            ? `💡 Tip: You can regenerate this ${agentNode.data.type} anytime by mentioning @${nickname} and describing what changes you want. For example: "@${nickname} try a different angle" or "@${nickname} ${agentNode.data.type === "lifestyle-image" ? "show it in a kitchen setting" : "with better lighting"}"`
+            : `💡 Tip: You can regenerate this ${agentNode.data.type} anytime by mentioning @${nickname} and describing what changes you want. For example: "@${nickname} make it more casual" or "@${nickname} try again with a focus on benefits"`;
           
           setChatMessages(prev => [...prev, {
             id: `tip-${Date.now()}`,
@@ -1313,13 +1346,20 @@ IMPORTANT INSTRUCTIONS:
     }
   }, [chatMessages, projectProducts, userProfile, refineContent, setNodes]);
 
-  // Handle chat button click - add @mention to input
+  // Handle chat button click - add @mention to input (now uses unique nicknames)
   const handleChatButtonClick = useCallback((nodeId: string) => {
     const agentNode = nodesRef.current.find((n: any) => n.id === nodeId);
     if (!agentNode || agentNode.type !== 'agent') return;
     
-    const agentType = agentNode.data.type as string;
-    const mention = `@${agentType.toUpperCase()}_AGENT `;
+    // Dynamically calculate nickname by finding this agent's position among same-type agents
+    const sameTypeAgents = nodesRef.current.filter((n: any) => n.type === 'agent' && n.data.type === agentNode.data.type);
+    const agentPosition = sameTypeAgents.findIndex((n: any) => n.id === nodeId) + 1; // +1 for 1-based indexing
+    const dynamicNickname = agentPosition === 1 ? `${agentNode.data.type.toUpperCase()}_AGENT` : `${agentNode.data.type.toUpperCase()}_AGENT_${agentPosition}`;
+    
+    const nickname = agentNode.data.nickname || dynamicNickname;
+    const mention = `@${nickname} `;
+    
+    console.log(`🔍 Chat Button: Agent type: ${agentNode.data.type}, position: ${agentPosition}, stored nickname: ${agentNode.data.nickname}, dynamic nickname: ${dynamicNickname}, using: ${nickname}`);
     
     // Add mention to chat input
     setChatInput(mention);
@@ -1423,15 +1463,11 @@ IMPORTANT INSTRUCTIONS:
         };
         setEdges((eds: any) => [...eds, newEdge]);
         
-        // Update agent connections in database
-        if (agentNode.data.agentId) {
-          updateAgentConnections({
-            id: agentNode.data.agentId as Id<"agents">,
-            connections: [productNode.data.productId as string],
-          }).catch((error: any) => {
-            console.error("Failed to update agent connections:", error);
-          });
-        }
+        // ✅ Agent connections are already set during creation
+        console.log("✅ [GENERATE_ALL] Agent connection ensured:", {
+          agentId: agentNode.data.agentId,
+          productId: productNode.data.productId,
+        });
       }
     });
     
@@ -1478,15 +1514,25 @@ IMPORTANT INSTRUCTIONS:
         setEdges((eds: any) => addEdge(params, eds));
         
         // Update agent connections in database
-        if (targetNode.data.agentId && sourceNode.data.videoId) {
+        if (targetNode.data.agentId && (sourceNode.data.productId || sourceNode.data.agentId)) {
           const currentConnections = targetNode.data.connections || [];
-          const newConnections = [...currentConnections, sourceNode.data.videoId];
+          const connectionId = sourceNode.data.productId || sourceNode.data.agentId;
+          const newConnections = [...currentConnections, connectionId];
           
+          console.log("🔗 [MANUAL] Updating agent connections in database:", {
+            agentId: targetNode.data.agentId,
+            sourceNodeType: sourceNode.type,
+            targetNodeType: targetNode.type,
+            connectionId: connectionId,
+            newConnections
+          });
           updateAgentConnections({
             id: targetNode.data.agentId as Id<"agents">,
             connections: newConnections,
+          }).then(() => {
+            console.log("✅ [MANUAL] Agent connections updated successfully for:", targetNode.data.agentId);
           }).catch((error: any) => {
-            console.error("Failed to update agent connections:", error);
+            console.error("❌ [MANUAL] Failed to update agent connections:", error);
           });
           
           // Update node data
@@ -1508,7 +1554,157 @@ IMPORTANT INSTRUCTIONS:
     },
     [nodes, setEdges, setNodes, updateAgentConnections]
   );
+
+  // Phase 2: Handle pull-to-spawn connection events
+  const onConnectStart = useCallback((_event: any, params: { nodeId: string; handleId: string }) => {
+    console.log("🔌 Connection started from:", params.nodeId);
+    connectionStartRef.current = params;
+  }, []);
+
+  const onConnectEnd = useCallback((event: any) => {
+    const connectionStart = connectionStartRef.current;
+    connectionStartRef.current = null;
+    
+    if (!connectionStart) {
+      console.log("🔌 No connection start found");
+      return;
+    }
+    
+    const target = event.target as HTMLElement;
+    if (!target) {
+      console.log("🔌 No event target found");
+      return;
+    }
+    
+    // Check what was actually clicked/dropped on
+    const isPane = target.classList.contains('react-flow__pane');
+    const isBackground = target.classList.contains('react-flow__background');
+    const isHandle = target.closest('.react-flow__handle') !== null;
+    const isNode = target.closest('.react-flow__node') !== null;
+    
+    // Only show agent picker if dropped on empty canvas
+    if ((isPane || isBackground) && !isHandle && !isNode) {
+      const position = {
+        x: event.clientX,
+        y: event.clientY
+      };
+      
+      console.log("🎯 Dropped on empty canvas, showing picker at:", position);
+      setAgentPickerPosition(position);
+      setAgentPickerVisible(true);
+      setDragFromNodeId(connectionStart.nodeId);
+    } else {
+      console.log("🔌 Connection ended on node/handle");
+    }
+     }, []);
+
+  // Agent Picker handlers
+  const handleAgentPickerSelect = useCallback(async (agentType: "title" | "bullet-points" | "hero-image" | "lifestyle-image" | "infographic") => {
+    if (!dragFromNodeId) return;
+    
+    const sourceNode = nodesRef.current.find((n: any) => n.id === dragFromNodeId);
+    if (!sourceNode) return;
+    
+    // Convert screen coordinates to React Flow coordinates using the actual drop position
+    const position = reactFlowInstance?.screenToFlowPosition({
+      x: agentPickerPosition.x,
+      y: agentPickerPosition.y
+    }) || {
+      x: sourceNode.position.x + 200,
+      y: sourceNode.position.y
+    };
+    
+    try {
+      // Find product ID for agent creation
+      let productId = null;
+      if (sourceNode.type === 'video' && sourceNode.data.productId) {
+        productId = sourceNode.data.productId;
+      } else {
+        const productNode = nodesRef.current.find((n: any) => n.type === 'video');
+        if (productNode?.data?.productId) {
+          productId = productNode.data.productId;
+        } else {
+          toast.error("No product found! Please add a product image first.");
+          return;
+        }
+      }
+      
+      const agentId = await createAgent({
+        productId,
+        type: agentType,
+        canvasPosition: position,
+      });
+      
+      // Generate unique nickname for this agent
+      const nickname = generateAgentNickname(agentType, nodesRef.current);
+      
+      const nodeId = `agent_${agentType}_${agentId}`;
+      const newNode: Node = {
+        id: nodeId,
+        type: "agent",
+        position,
+        data: {
+          agentId,
+          type: agentType,
+          nickname,
+          draft: "",
+          status: "idle",
+          connections: [productId],
+          onGenerate: () => handleGenerate(nodeId),
+          onChat: () => handleChatButtonClick(nodeId),
+          onView: () => setSelectedNodeForModal(nodeId),
+          onRegenerate: () => handleRegenerateClick(nodeId),
+          onViewPrompt: () => {
+            const node = nodesRef.current.find((n: any) => n.id === nodeId);
+            if (node?.data?.lastPrompt) {
+              setSelectedPrompt({ agentType: node.data.type, prompt: node.data.lastPrompt });
+              setPromptModalOpen(true);
+            }
+          },
+        },
+      };
+      
+      setNodes((nds: any) => [...nds, newNode]);
+      
+      // Create connection edge from source to new agent
+      const newEdge: Edge = {
+        id: `e${dragFromNodeId}-${nodeId}`,
+        source: dragFromNodeId,
+        target: nodeId,
+        animated: enableEdgeAnimations && !isDragging,
+      };
+      setEdges((eds: any) => [...eds, newEdge]);
+      
+      // ✅ Agent connections are now set during creation - no separate update needed
+      console.log("✅ [SPAWN] Agent created with connections:", {
+        agentId,
+        productId,
+        connections: [productId],
+        nodeId,
+        sourceNodeType: sourceNode.type,
+        dragFromNodeId
+      });
+      
+      toast.success(`${agentType.charAt(0).toUpperCase() + agentType.slice(1)} agent added!`);
+      
+    } catch (error) {
+      console.error("Failed to create agent:", error);
+      toast.error("Failed to create agent");
+    }
+    
+    // Reset picker state
+    setAgentPickerVisible(false);
+    setDragFromNodeId(null);
+    connectionStartRef.current = null;
+  }, [dragFromNodeId, agentPickerPosition, reactFlowInstance, projectId, createAgent, generateAgentNickname, handleGenerate, handleChatButtonClick, handleRegenerateClick, setNodes, setEdges, enableEdgeAnimations, isDragging, updateAgentConnections]);
   
+  const closeAgentPicker = useCallback(() => {
+    console.log("🚫 Closing agent picker");
+    setAgentPickerVisible(false);
+    setDragFromNodeId(null);
+    connectionStartRef.current = null;
+  }, []);
+   
   // Perform the actual deletion
   const performDeletion = useCallback(
     async (nodes: Node[]) => {
@@ -2096,6 +2292,10 @@ IMPORTANT INSTRUCTIONS:
       }).then((agentId) => {
         const nodeId = `agent_${type}_${agentId}`;
         console.log(`✅ Agent created: nodeId="${nodeId}", type="${type}", agentId="${agentId}"`);
+        // Generate unique nickname for this agent
+        const tempNodes = [...nodes]; // Current nodes before adding this one
+        const nickname = generateAgentNickname(type, tempNodes);
+        
         const newNode: Node = {
           id: nodeId,
           type: "agent",
@@ -2103,6 +2303,7 @@ IMPORTANT INSTRUCTIONS:
           data: {
             agentId, // Store the database ID
             type,
+            nickname, // Add unique nickname for chat system
             draft: "",
             status: "idle",
             connections: [],
@@ -2132,12 +2333,13 @@ IMPORTANT INSTRUCTIONS:
         };
         setEdges((eds: any) => [...eds, newEdge]);
         
-        // Update agent's connections in database
-        updateAgentConnections({
-          id: agentId,
-          connections: [productNode.data.productId as string],
-        }).catch((error) => {
-          console.error("Failed to update agent connections:", error);
+        // ✅ Agent connections are now set during creation - no separate update needed
+        console.log("✅ [DROP] Agent created with connections:", {
+          agentId,
+          productId: productNode.data.productId,
+          nodeId,
+          productNodeId: productNode.id,
+          agentType: type
         });
         
         toast.success(`${type} agent added and connected to product`);
@@ -2149,7 +2351,7 @@ IMPORTANT INSTRUCTIONS:
         toast.error("Failed to create agent");
       });
     },
-    [reactFlowInstance, setNodes, setEdges, handleVideoUpload, handleGenerate, nodes, createAgent, projectId, updateAgentConnections, handleChatButtonClick, handleRegenerateClick]
+    [reactFlowInstance, setNodes, setEdges, handleVideoUpload, handleGenerate, nodes, createAgent, generateAgentNickname, projectId, updateAgentConnections, handleChatButtonClick, handleRegenerateClick]
   );
 
   // Load existing products, agents, and brand kits from the project
@@ -2180,6 +2382,8 @@ IMPORTANT INSTRUCTIONS:
             keyFeatures: product.keyFeatures,
             targetKeywords: product.targetKeywords,
             targetAudience: product.targetAudience,
+            customTargetAudience: product.customTargetAudience,
+            productCategory: product.productCategory,
             // brandVoice removed - now handled by Brand Kit
             onImageClick: () => handleVideoClick({
               url: product.productImages?.[0]?.url || '',
@@ -2197,30 +2401,39 @@ IMPORTANT INSTRUCTIONS:
         };
       });
 
-      const agentNodes: Node[] = projectAgents.map((agent) => ({
-        id: `agent_${agent.type}_${agent._id}`,
-        type: "agent",
-        position: agent.canvasPosition,
-        data: {
-          agentId: agent._id, // Store the database ID
-          type: agent.type,
-          draft: agent.draft,
-          thumbnailUrl: agent.imageUrl,
-          status: agent.status,
-          connections: agent.connections,
-          onGenerate: () => handleGenerate(`agent_${agent.type}_${agent._id}`),
-          onChat: () => handleChatButtonClick(`agent_${agent.type}_${agent._id}`),
-          onView: () => setSelectedNodeForModal(`agent_${agent.type}_${agent._id}`),
-          onRegenerate: () => handleRegenerateClick(`agent_${agent.type}_${agent._id}`),
-          onViewPrompt: () => {
-            const node = nodesRef.current.find((n: any) => n.id === `agent_${agent.type}_${agent._id}`);
-            if (node?.data?.lastPrompt) {
-              setSelectedPrompt({ agentType: node.data.type, prompt: node.data.lastPrompt });
-              setPromptModalOpen(true);
-            }
+      // Generate nicknames for loaded agents (preserving order)
+      const agentNodes: Node[] = projectAgents.map((agent, index) => {
+        // Calculate nickname based on position among same-type agents
+        const sameTypeAgents = projectAgents.filter((a, i) => a.type === agent.type && i <= index);
+        const instanceNumber = sameTypeAgents.length;
+        const nickname = instanceNumber === 1 ? `${agent.type.toUpperCase()}_AGENT` : `${agent.type.toUpperCase()}_AGENT_${instanceNumber}`;
+        
+        return {
+          id: `agent_${agent.type}_${agent._id}`,
+          type: "agent",
+          position: agent.canvasPosition,
+          data: {
+            agentId: agent._id, // Store the database ID
+            type: agent.type,
+            nickname, // Add unique nickname for chat system
+            draft: agent.draft,
+            thumbnailUrl: agent.imageUrl,
+            status: agent.status,
+            connections: agent.connections,
+            onGenerate: () => handleGenerate(`agent_${agent.type}_${agent._id}`),
+            onChat: () => handleChatButtonClick(`agent_${agent.type}_${agent._id}`),
+            onView: () => setSelectedNodeForModal(`agent_${agent.type}_${agent._id}`),
+            onRegenerate: () => handleRegenerateClick(`agent_${agent.type}_${agent._id}`),
+            onViewPrompt: () => {
+              const node = nodesRef.current.find((n: any) => n.id === `agent_${agent.type}_${agent._id}`);
+              if (node?.data?.lastPrompt) {
+                setSelectedPrompt({ agentType: node.data.type, prompt: node.data.lastPrompt });
+                setPromptModalOpen(true);
+              }
+            },
           },
-        },
-      }));
+        };
+      });
 
       // Create brand kit nodes if they exist
       const brandKitNodes: Node[] = projectBrandKits ? [{
@@ -2264,44 +2477,96 @@ IMPORTANT INSTRUCTIONS:
       let edges: Edge[] = [];
       
       if (canvasState?.edges && canvasState.edges.length > 0) {
-        // Use saved canvas state edges (this preserves brand kit connections)
+        // Use saved canvas state edges - validate that both source and target nodes exist AND connection is valid
         console.log("[Canvas] Restoring edges from canvas state:", canvasState.edges.length);
-        edges = canvasState.edges.map((edge: any) => ({
-          id: edge.id,
-          source: edge.source,
-          target: edge.target,
-          sourceHandle: edge.sourceHandle,
-          targetHandle: edge.targetHandle,
-          animated: enableEdgeAnimations && !isDragging,
-        }));
+        console.log("🔍 Raw edges from database:", canvasState.edges);
+        edges = canvasState.edges
+          .filter((edge: any) => {
+            // Only restore edges where both nodes actually exist
+            const sourceExists = [...productNodes, ...agentNodes, ...brandKitNodes].some(n => n.id === edge.source);
+            const targetExists = [...productNodes, ...agentNodes, ...brandKitNodes].some(n => n.id === edge.target);
+            
+            if (!sourceExists || !targetExists) {
+              console.log("🚫 Filtered out edge with missing nodes:", edge.source, "->", edge.target);
+              return false;
+            }
+            
+            // CRITICAL: Apply same validation logic as onConnect function
+            const sourceNode = [...productNodes, ...agentNodes, ...brandKitNodes].find(n => n.id === edge.source);
+            const targetNode = [...productNodes, ...agentNodes, ...brandKitNodes].find(n => n.id === edge.target);
+            
+            if (!sourceNode || !targetNode) return false;
+            
+            // Allow connections: video->agent, agent->agent, video->brandKit (MATCH onConnect logic)
+            const isValidConnection = 
+              (sourceNode.type === 'video' && targetNode.type === 'agent') ||
+              (sourceNode.type === 'agent' && targetNode.type === 'agent') ||
+              (sourceNode.type === 'video' && targetNode.type === 'brandKit');
+            
+            if (!isValidConnection) {
+              console.log("🚫 Filtered out invalid edge:", sourceNode.type, "->", targetNode.type);
+            }
+            
+            return isValidConnection;
+          })
+          .map((edge: any) => {
+            console.log("✅ Edge passed validation:", edge.source, "->", edge.target);
+            return {
+              id: edge.id,
+              source: edge.source,
+              target: edge.target,
+              sourceHandle: edge.sourceHandle,
+              targetHandle: edge.targetHandle,
+              animated: enableEdgeAnimations && !isDragging,
+            };
+          });
+        console.log("[Canvas] Restored", edges.length, "valid edges from canvas state");
       } else {
-        // Fallback: reconstruct edges based on agent connections (legacy)
-        console.log("[Canvas] No canvas state edges, reconstructing from agent connections");
-        projectAgents.forEach((agent) => {
-          agent.connections.forEach((connectionId: string) => {
-            // Find the source node by its data ID
-            let sourceNodeId: string | null = null;
+              // Fallback: reconstruct edges based on agent connections (legacy)
+      console.log("[Canvas] No canvas state edges, reconstructing from agent connections");
+      console.log("🔍 [RESTORE] Project agents and their connections:", projectAgents.map(a => ({
+        id: a._id,
+        type: a.type,
+        connections: a.connections
+      })));
+      projectAgents.forEach((agent) => {
+        console.log(`🔍 [RESTORE] Processing agent ${agent.type} (${agent._id}) with connections:`, agent.connections);
+        agent.connections.forEach((connectionId: string) => {
+          // Find the source node by its data ID
+          let sourceNodeId: string | null = null;
             
-            // Check if it's a product ID
-            const productNode = productNodes.find(pn => pn.data.productId === connectionId);
-            if (productNode) {
-              sourceNodeId = productNode.id;
+                      console.log(`🔍 [RESTORE] Looking for connection ID: ${connectionId}`);
+          console.log(`🔍 [RESTORE] Available product nodes:`, productNodes.map(pn => ({
+            id: pn.id,
+            productId: pn.data.productId
+          })));
+          
+          // Check if it's a product ID
+          const productNode = productNodes.find(pn => pn.data.productId === connectionId);
+          if (productNode) {
+            sourceNodeId = productNode.id;
+            console.log(`✅ [RESTORE] Found product node: ${productNode.id} for connection ${connectionId}`);
+          } else {
+            // Check if it's an agent ID
+            const agentNode = agentNodes.find(an => an.data.agentId === connectionId);
+            if (agentNode) {
+              sourceNodeId = agentNode.id;
+              console.log(`✅ [RESTORE] Found agent node: ${agentNode.id} for connection ${connectionId}`);
             } else {
-              // Check if it's an agent ID
-              const agentNode = agentNodes.find(an => an.data.agentId === connectionId);
-              if (agentNode) {
-                sourceNodeId = agentNode.id;
-              }
+              console.log(`❌ [RESTORE] No node found for connection ID: ${connectionId}`);
             }
-            
-            if (sourceNodeId) {
-              edges.push({
-                id: `e${sourceNodeId}-agent_${agent.type}_${agent._id}`,
-                source: sourceNodeId,
-                target: `agent_${agent.type}_${agent._id}`,
-                animated: enableEdgeAnimations && !isDragging,
-              });
-            }
+          }
+          
+          if (sourceNodeId) {
+            const edgeId = `e${sourceNodeId}-agent_${agent.type}_${agent._id}`;
+            console.log(`🔗 [RESTORE] Creating edge: ${edgeId}`);
+            edges.push({
+              id: edgeId,
+              source: sourceNodeId,
+              target: `agent_${agent.type}_${agent._id}`,
+              animated: enableEdgeAnimations && !isDragging,
+            });
+          }
           });
         });
       }
@@ -2436,6 +2701,8 @@ IMPORTANT INSTRUCTIONS:
       }
       
       console.log("Saving canvas state with viewport:", viewport);
+      console.log("🔗 Saving edges to database:", edges.length, "edges:");
+      edges.forEach((edge: any) => console.log("  -", edge.source, "->", edge.target));
       
       // Filter out function properties from node data
       const serializableNodes = nodes.map((node: any) => ({
@@ -2794,6 +3061,8 @@ IMPORTANT INSTRUCTIONS:
             }}
             onEdgesChange={onEdgesChange}
             onConnect={onConnect}
+            onConnectStart={onConnectStart}
+            onConnectEnd={onConnectEnd}
             onNodesDelete={onNodesDelete}
             onNodeContextMenu={onNodeContextMenu}
             onInit={setReactFlowInstance}
@@ -2843,6 +3112,15 @@ IMPORTANT INSTRUCTIONS:
               />
             )}
           </ReactFlow>
+          
+          {/* Agent Picker Overlay */}
+          {agentPickerVisible && (
+            <AgentPicker
+              onSelectAgent={handleAgentPickerSelect}
+              position={agentPickerPosition}
+              onClose={closeAgentPicker}
+            />
+          )}
         </div>
         
         {/* Content Modal */}

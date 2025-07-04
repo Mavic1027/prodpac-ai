@@ -27,6 +27,8 @@ function buildHackathonPrompt(
     keyFeatures?: string;
     targetKeywords?: string;
     targetAudience?: string;
+    customTargetAudience?: string;
+    productCategory?: string;
   },
   connectedOutputs: Array<{ type: string; content: string }>,
   profileData?: {
@@ -132,9 +134,12 @@ function buildHackathonPrompt(
         prompt += `Key Features: ${productData.features.join(', ')}\n`;
       }
       
-      // Target Audience from ProductNode (required input)
+      // Target Audience from ProductNode (with custom audience priority)
       let targetAudience = '';
-      if (productData.targetAudience) {
+      if (productData.targetAudience === "Custom" && productData.customTargetAudience) {
+        targetAudience = productData.customTargetAudience;
+        prompt += `Target Audience: ${productData.customTargetAudience}\n`;
+      } else if (productData.targetAudience) {
         targetAudience = productData.targetAudience;
         prompt += `Target Audience: ${productData.targetAudience}\n`;
       } else if (profileData?.targetAudience) {
@@ -142,9 +147,12 @@ function buildHackathonPrompt(
         prompt += `Target Audience: ${profileData.targetAudience}\n`;
       }
       
-      // Product Category from Profile (required input)
+      // Product Category from ProductNode (PRIORITY) or Profile (fallback)
       let productCategory = '';
-      if (profileData?.productCategory) {
+      if (productData.productCategory) {
+        productCategory = productData.productCategory;
+        prompt += `Product Category: ${productData.productCategory}\n`;
+      } else if (profileData?.productCategory) {
         productCategory = profileData.productCategory;
         prompt += `Product Category: ${profileData.productCategory}\n`;
       }
@@ -269,6 +277,8 @@ export const generateLifestyleImage = action({
       keyFeatures: v.optional(v.string()),
       targetKeywords: v.optional(v.string()),
       targetAudience: v.optional(v.string()),
+      customTargetAudience: v.optional(v.string()),
+      productCategory: v.optional(v.string()),
     }),
     connectedAgentOutputs: v.array(
       v.object({
@@ -339,6 +349,8 @@ export const generateLifestyleImage = action({
             keyFeatures: freshProductData.keyFeatures || args.productData.keyFeatures,
             targetKeywords: freshProductData.targetKeywords || args.productData.targetKeywords,
             targetAudience: freshProductData.targetAudience || args.productData.targetAudience,
+            customTargetAudience: freshProductData.customTargetAudience || args.productData.customTargetAudience,
+            productCategory: freshProductData.productCategory || args.productData.productCategory,
           };
         }
       }

@@ -15,28 +15,30 @@ export const generateContentSimple = action({
       v.literal("infographic")
     ),
     productId: v.optional(v.id("products")),
-    productData: v.object({
-      title: v.optional(v.string()),
-      features: v.optional(v.array(v.string())),
-      specifications: v.optional(v.object({
-        dimensions: v.optional(v.string()),
-        weight: v.optional(v.string()),
-        materials: v.optional(v.array(v.string())),
-        color: v.optional(v.string()),
-        size: v.optional(v.string()),
-      })),
-      keywords: v.optional(v.array(v.string())),
-      brandInfo: v.optional(v.object({
-        name: v.string(),
-        description: v.optional(v.string()),
-      })),
-      format: v.optional(v.string()),
-      // Enhanced product metadata from ProductNode
-      productName: v.optional(v.string()),
-      keyFeatures: v.optional(v.string()),
-      targetKeywords: v.optional(v.string()),
-      targetAudience: v.optional(v.string()),
-    }),
+      productData: v.object({
+    title: v.optional(v.string()),
+    features: v.optional(v.array(v.string())),
+    specifications: v.optional(v.object({
+      dimensions: v.optional(v.string()),
+      weight: v.optional(v.string()),
+      materials: v.optional(v.array(v.string())),
+      color: v.optional(v.string()),
+      size: v.optional(v.string()),
+    })),
+    keywords: v.optional(v.array(v.string())),
+    brandInfo: v.optional(v.object({
+      name: v.string(),
+      description: v.optional(v.string()),
+    })),
+    format: v.optional(v.string()),
+    // Enhanced product metadata from ProductNode
+    productName: v.optional(v.string()),
+    keyFeatures: v.optional(v.string()),
+    targetKeywords: v.optional(v.string()),
+    targetAudience: v.optional(v.string()),
+    customTargetAudience: v.optional(v.string()),
+    productCategory: v.optional(v.string()),
+  }),
     brandKitData: v.optional(v.object({
       brandName: v.string(),
       colorPalette: v.object({
@@ -93,6 +95,8 @@ export const generateContentSimple = action({
             keyFeatures: args.productData.keyFeatures,
             targetKeywords: args.productData.targetKeywords,
             targetAudience: args.productData.targetAudience,
+            customTargetAudience: args.productData.customTargetAudience,
+            productCategory: args.productData.productCategory,
           };
           console.log(`Using fresh product data for ${args.agentType} generation with enhanced metadata`);
         }
@@ -405,6 +409,8 @@ function buildHackathonPrompt(
     keyFeatures?: string;
     targetKeywords?: string;
     targetAudience?: string;
+    customTargetAudience?: string;
+    productCategory?: string;
   },
   connectedOutputs: Array<{ type: string; content: string }>,
   profileData?: {
@@ -526,8 +532,10 @@ function buildHackathonPrompt(
         prompt += `Target Keywords: ${productData.keywords.join(', ')}\n`;
       }
       
-      // Target Audience from ProductNode
-      if (productData.targetAudience) {
+      // Target Audience from ProductNode (with custom audience priority)
+      if (productData.targetAudience === "Custom" && productData.customTargetAudience) {
+        prompt += `Target Audience: ${productData.customTargetAudience}\n`;
+      } else if (productData.targetAudience) {
         prompt += `Target Audience: ${productData.targetAudience}\n`;
       } else if (profileData?.targetAudience) {
         prompt += `Target Audience: ${profileData.targetAudience}\n`;
@@ -582,8 +590,10 @@ function buildHackathonPrompt(
         prompt += `Target Keywords: ${productData.keywords.join(', ')}\n`;
       }
       
-      // Target Audience from ProductNode - EXACT SAME AS TITLE
-      if (productData.targetAudience) {
+      // Target Audience from ProductNode (with custom audience priority) - EXACT SAME AS TITLE
+      if (productData.targetAudience === "Custom" && productData.customTargetAudience) {
+        prompt += `Target Audience: ${productData.customTargetAudience}\n`;
+      } else if (productData.targetAudience) {
         prompt += `Target Audience: ${productData.targetAudience}\n`;
       } else if (profileData?.targetAudience) {
         prompt += `Target Audience: ${profileData.targetAudience}\n`;
@@ -651,9 +661,12 @@ function buildHackathonPrompt(
         prompt += `Key Features: ${productData.features.join(', ')}\n`;
       }
       
-      // Target Audience from ProductNode (required input)
+      // Target Audience from ProductNode (with custom audience priority)
       let targetAudience = '';
-      if (productData.targetAudience) {
+      if (productData.targetAudience === "Custom" && productData.customTargetAudience) {
+        targetAudience = productData.customTargetAudience;
+        prompt += `Target Audience: ${productData.customTargetAudience}\n`;
+      } else if (productData.targetAudience) {
         targetAudience = productData.targetAudience;
         prompt += `Target Audience: ${productData.targetAudience}\n`;
       } else if (profileData?.targetAudience) {
@@ -661,9 +674,12 @@ function buildHackathonPrompt(
         prompt += `Target Audience: ${profileData.targetAudience}\n`;
       }
       
-      // Product Category from Profile (required input)
+      // Product Category from ProductNode (PRIORITY) or Profile (fallback)
       let productCategory = '';
-      if (profileData?.productCategory) {
+      if (productData.productCategory) {
+        productCategory = productData.productCategory;
+        prompt += `Product Category: ${productData.productCategory}\n`;
+      } else if (profileData?.productCategory) {
         productCategory = profileData.productCategory;
         prompt += `Product Category: ${profileData.productCategory}\n`;
       }
