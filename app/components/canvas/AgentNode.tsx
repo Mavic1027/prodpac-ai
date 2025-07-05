@@ -1,4 +1,4 @@
-import { memo } from "react";
+import { memo, useState, useEffect, useRef } from "react";
 import { Handle, Position, type NodeProps } from "./ReactFlowComponents";
 import { 
   FileText, 
@@ -15,7 +15,10 @@ import {
   Zap,
   Bot,
   Brain,
-  BarChart3
+  BarChart3,
+  Settings,
+  Plus,
+  Minus
 } from "lucide-react";
 import { Card } from "~/components/ui/card";
 import { Badge } from "~/components/ui/badge";
@@ -80,7 +83,7 @@ const agentConfig = {
 
 interface ExtendedNodeProps {
   data: AgentNodeData & {
-    onGenerate?: () => void;
+    onGenerate?: (imageCount?: number) => void;
     onChat?: () => void;
     onView?: () => void;
     onRegenerate?: () => void;
@@ -120,6 +123,26 @@ const cleanDraftText = (draft: string, type: string): string => {
 export const AgentNode = memo(({ data, selected, id }: ExtendedNodeProps) => {
   const config = agentConfig[data.type];
   const Icon = config.icon;
+  
+  // Multi-output control for visual agents (hero-image, lifestyle-image, infographic)
+  const isVisualAgent = data.type === "hero-image" || data.type === "lifestyle-image" || data.type === "infographic";
+  const [imageCount, setImageCount] = useState(1);
+  const [showImageCountPopup, setShowImageCountPopup] = useState(false);
+  const popupRef = useRef<HTMLDivElement>(null);
+  
+  // Close popup when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (popupRef.current && !popupRef.current.contains(event.target as Node)) {
+        setShowImageCountPopup(false);
+      }
+    };
+    
+    if (showImageCountPopup) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [showImageCountPopup]);
 
   const statusIcons = {
     idle: null,
@@ -215,9 +238,9 @@ export const AgentNode = memo(({ data, selected, id }: ExtendedNodeProps) => {
       )}
       
       {/* Regular content display */}
-      {data.status !== "generating" && ((data.type === "hero-image" || data.type === "lifestyle-image") && (data.thumbnailUrl || data.imageUrl) ? (
+      {data.status !== "generating" && ((data.type === "hero-image" || data.type === "lifestyle-image" || data.type === "infographic") && (data.thumbnailUrl || data.imageUrl) ? (
         <div className="mb-4 cursor-pointer group/content" onClick={data.onView}>
-          <div className="aspect-[4/3] relative rounded-xl overflow-hidden bg-black shadow-lg transition-all duration-300 hover:shadow-xl">
+          <div className="aspect-[4/5] relative rounded-xl overflow-hidden bg-black shadow-lg transition-all duration-300 hover:shadow-xl">
             <img 
               src={data.thumbnailUrl || data.imageUrl} 
               alt="Generated image" 
@@ -265,6 +288,8 @@ export const AgentNode = memo(({ data, selected, id }: ExtendedNodeProps) => {
         </div>
       ))}
       
+
+      
       <div className="flex items-center gap-2">
         <Button 
           size="sm" 
@@ -282,24 +307,83 @@ export const AgentNode = memo(({ data, selected, id }: ExtendedNodeProps) => {
             variant="outline" 
             className="flex-1 hover:bg-primary/10 hover:border-primary/50 hover:text-primary transition-all"
             onClick={data.onRegenerate}
-            disabled={data.status === "generating"}
+            disabled={false}
           >
             <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
             Regenerate
           </Button>
         ) : (
-          <Button 
-            size="sm" 
-            variant="default" 
-            className={`flex-1 bg-gradient-to-r ${config.gradient} hover:opacity-90 transition-all text-foreground font-medium shadow-sm`}
-            onClick={data.onGenerate}
-            disabled={data.status === "generating"}
-          >
-            <>
-              <Sparkles className="h-3.5 w-3.5 mr-1.5" />
-              Generate
-            </>
-          </Button>
+          <div className="flex-1 relative">
+            {isVisualAgent && data.status === "idle" ? (
+              <div className="flex w-full">
+                <Button 
+                  size="sm" 
+                  variant="default" 
+                  className={`flex-1 bg-gradient-to-r ${config.gradient} hover:opacity-90 transition-all text-foreground font-medium shadow-sm rounded-r-none border-r border-white/20`}
+                  onClick={() => data.onGenerate?.(isVisualAgent ? imageCount : undefined)}
+                  disabled={false}
+                >
+                  <Sparkles className="h-3.5 w-3.5 mr-1.5" />
+                  Generate
+                </Button>
+                <button
+                  className={`px-2 bg-gradient-to-r ${config.gradient} hover:bg-white/10 transition-all text-foreground shadow-sm rounded-l-none border-l border-white/20 flex items-center justify-center group`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setShowImageCountPopup(!showImageCountPopup);
+                  }}
+                  disabled={false}
+                  title="Set number of images"
+                >
+                  <Settings className="h-3.5 w-3.5 opacity-70 group-hover:opacity-100 group-hover:scale-110 transition-all" />
+                </button>
+              </div>
+            ) : (
+              <Button 
+                size="sm" 
+                variant="default" 
+                className={`w-full bg-gradient-to-r ${config.gradient} hover:opacity-90 transition-all text-foreground font-medium shadow-sm`}
+                onClick={() => data.onGenerate?.(undefined)}
+                disabled={data.status === "generating"}
+              >
+                <Sparkles className="h-3.5 w-3.5 mr-1.5" />
+                Generate
+              </Button>
+            )}
+            
+            {/* Image count popup */}
+            {showImageCountPopup && (
+              <div 
+                ref={popupRef}
+                className="absolute top-full mt-2 left-1/2 -translate-x-1/2 bg-background border border-border rounded-lg shadow-xl p-4 z-50 min-w-[140px]"
+              >
+                <div className="text-center">
+                  <div className="text-sm font-medium text-foreground mb-3">Images</div>
+                  <div className="flex items-center justify-center gap-3">
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="h-8 w-8 hover:bg-primary/10 rounded-full"
+                      onClick={() => setImageCount(Math.max(1, imageCount - 1))}
+                      disabled={imageCount <= 1}
+                    >
+                      <Minus className="h-4 w-4" />
+                    </Button>
+                    <span className="text-lg font-semibold min-w-[24px] text-center">{imageCount}</span>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="h-8 w-8 hover:bg-primary/10 rounded-full"
+                      onClick={() => setImageCount(Math.min(4, imageCount + 1))}
+                      disabled={imageCount >= 4}
+                    >
+                      <Plus className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
         )}
       </div>
       

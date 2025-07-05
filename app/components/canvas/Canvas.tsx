@@ -174,11 +174,12 @@ function InnerCanvas({
   const generateContent = useAction(api.aiHackathon.generateContentSimple);
   const generateHeroImage = useAction(api.heroImage.generateHeroImage);
   const generateLifestyleImage = useAction(api.lifestyleImage.generateLifestyleImage);
+  const generateInfographic = useAction(api.infographic.generateInfographic);
   const refineContent = useAction(api.chat.refineContent);
   const refineHeroImage = useAction(api.heroImageRefine.refineHeroImage);
 
   // Handle content generation for an agent node
-  const handleGenerate = useCallback(async (nodeId: string, thumbnailImages?: File[], additionalContext?: string) => {
+  const handleGenerate = useCallback(async (nodeId: string, thumbnailImages?: File[], additionalContext?: string, imageCount?: number) => {
     const agentNode = nodesRef.current.find((n: any) => n.id === nodeId);
     if (!agentNode) {
       console.error("Agent node not found:", nodeId);
@@ -605,12 +606,127 @@ function InnerCanvas({
         if (!imageUrl) {
           toast.warning("Lifestyle image concept created, but image generation was blocked by safety filters. Try uploading different images or adjusting your requirements.");
         }
+      } else if (agentNode.data.type === "infographic") {
+        // For infographic agent, extract product images from Product Image Node
+        console.log("[Canvas] Starting infographic generation");
+        
+        // Check if we have product images from Product Image Node
+        let productImages: { dataUrl: string; timestamp?: number }[] = [];
+        
+        if (thumbnailImages && thumbnailImages.length > 0) {
+          // Use uploaded images if available
+          console.log("[Canvas] Using uploaded images:", thumbnailImages.length);
+          toast.info("Processing uploaded images for infographic generation...");
+          
+          productImages = await Promise.all(
+            thumbnailImages.map(async (file, index) => {
+              const dataUrl = await new Promise<string>((resolve) => {
+                const reader = new FileReader();
+                reader.onloadend = () => resolve(reader.result as string);
+                reader.readAsDataURL(file);
+              });
+              return {
+                dataUrl,
+                timestamp: index, // Use index as timestamp for uploaded images
+              };
+            })
+          );
+        } else if (videoNode.data.imageUrl) {
+          // Use product image from Product Image Node
+          console.log("[Canvas] Using product image from Product Image Node");
+          toast.info("Processing product image for infographic generation...");
+          
+          productImages = [{
+            dataUrl: videoNode.data.imageUrl,
+            timestamp: 0,
+          }];
+        } else {
+          // No images available
+          toast.error("No product images available. Please upload a product image first.");
+          throw new Error("No product images available for infographic generation.");
+        }
+        
+        console.log("[Canvas] Product images prepared:", productImages.length);
+        
+        // Update progress: Generating with AI
+        setNodes((nds: any) =>
+          nds.map((node: any) =>
+            node.id === nodeId
+              ? { 
+                  ...node, 
+                  data: { 
+                    ...node.data, 
+                    generationProgress: {
+                      stage: "Designing infographic layout...",
+                      percent: 60
+                    }
+                  } 
+                }
+              : node
+          )
+        );
+
+        // Generate infographic with vision API
+        console.log("[Canvas] Calling generateInfographic action with:", {
+          productId: videoNode.data.productId,
+          imageCount: productImages.length,
+          hasProductData: !!productData,
+          hasFeatures: !!productData.features?.length,
+          connectedAgentsCount: connectedAgentOutputs.length,
+          hasProfile: !!profileData
+        });
+        
+        const infographicResult = await generateInfographic({
+          agentType: "infographic",
+          productId: videoNode.data.productId as Id<"products"> | undefined,
+          productImages: productImages,
+          productData,
+          connectedAgentOutputs,
+          profileData,
+          additionalContext,
+        });
+        
+        console.log("[Canvas] Infographic generation completed");
+        console.log("[Canvas] Concept received:", infographicResult.concept.substring(0, 100) + "...");
+        console.log("[Canvas] Image URL received:", !!infographicResult.imageUrl);
+        console.log("[Canvas] Full infographic URL:", infographicResult.imageUrl);
+        console.log("[Canvas] Storage ID received:", infographicResult.storageId);
+        
+        result = infographicResult.concept;
+        imageUrl = infographicResult.imageUrl;
+        imageStorageId = infographicResult.storageId;
+        
+        console.log("[Canvas] After assignment - imageUrl:", imageUrl);
+        console.log("[Canvas] After assignment - imageStorageId:", imageStorageId);
+        
+        // Store the prompt for infographic too
+        if (infographicResult.prompt) {
+          setNodes((nds: any) =>
+            nds.map((node: any) =>
+              node.id === nodeId
+                ? { 
+                    ...node, 
+                    data: { 
+                      ...node.data, 
+                      lastPrompt: infographicResult.prompt
+                    } 
+                  }
+                : node
+            )
+          );
+        }
+        
+        // If no image was generated due to safety issues, inform the user
+        if (!imageUrl) {
+          toast.warning("Infographic concept created, but image generation was blocked by safety filters. Try uploading different images or adjusting your requirements.");
+        }
       } else {
         // Update progress based on agent type
         const progressMessages = {
           title: "Crafting compelling title...",
           "bullet-points": "Writing benefit-focused bullet points...",
-          "lifestyle-image": "Creating lifestyle imagery..."
+          "lifestyle-image": "Creating lifestyle imagery...",
+          "infographic": "Designing infographic layout..."
         };
         
         setNodes((nds: any) =>
@@ -698,7 +814,7 @@ function InnerCanvas({
         console.log("[Canvas] Lifestyle image URL value:", imageUrl);
       }
       
-      const isImageAgent = agentNode.data.type === "hero-image" || agentNode.data.type === "lifestyle-image";
+      const isImageAgent = agentNode.data.type === "hero-image" || agentNode.data.type === "lifestyle-image" || agentNode.data.type === "infographic";
       
       console.log("[Canvas] About to update node with imageUrl:", imageUrl);
       
@@ -743,8 +859,96 @@ function InnerCanvas({
       } else if (agentNode.data.type === "lifestyle-image" && imageUrl) {
         console.log("[Canvas] Lifestyle image generation successful with image URL");
         toast.success("Lifestyle image generated successfully! Click 'View' to see the image.");
+      } else if (agentNode.data.type === "infographic" && imageUrl) {
+        console.log("[Canvas] Infographic generation successful with image URL");
+        toast.success("Infographic generated successfully! Click 'View' to see the image.");
       } else {
         toast.success(`${agentNode.data.type} generated successfully!`);
+      }
+      
+      // ✅ Multi-output spawning for visual agents
+      if (imageCount && imageCount > 1 && (agentNode.data.type === "hero-image" || agentNode.data.type === "lifestyle-image" || agentNode.data.type === "infographic")) {
+        console.log(`[Canvas] 🎨 Multi-output: Spawning ${imageCount - 1} additional ${agentNode.data.type} nodes`);
+        
+        const productNode = nodesRef.current.find((n: any) => n.type === 'video');
+        if (productNode?.data?.productId) {
+          for (let i = 2; i <= imageCount; i++) {
+            try {
+              // Calculate position for additional nodes (stagger them to the right)
+              const basePosition = agentNode.position || { x: 0, y: 0 };
+              const newPosition = {
+                x: basePosition.x + (i - 1) * 320, // 320px spacing between nodes
+                y: basePosition.y
+              };
+              
+              // Create additional agent in database
+              const additionalAgentId = await createAgent({
+                productId: productNode.data.productId as Id<"products">,
+                type: agentNode.data.type as "title" | "bullet-points" | "hero-image" | "lifestyle-image" | "infographic",
+                canvasPosition: newPosition,
+              });
+              
+              // Generate unique nickname for additional agent
+              const nickname = generateAgentNickname(agentNode.data.type, nodesRef.current);
+              
+              const additionalNodeId = `agent_${agentNode.data.type}_${additionalAgentId}`;
+              const additionalNode: any = {
+                id: additionalNodeId,
+                type: "agent",
+                position: newPosition,
+                data: {
+                  agentId: additionalAgentId,
+                  type: agentNode.data.type,
+                  nickname,
+                  draft: "",
+                  status: "idle",
+                  connections: [productNode.data.productId],
+                  onGenerate: (imgCount?: number) => handleGenerate(additionalNodeId, undefined, undefined, imgCount),
+                  onChat: () => handleChatButtonClick(additionalNodeId),
+                  onView: () => setSelectedNodeForModal(additionalNodeId),
+                  onRegenerate: () => handleRegenerateClick(additionalNodeId),
+                  onViewPrompt: () => {
+                    const node = nodesRef.current.find((n: any) => n.id === additionalNodeId);
+                    if (node?.data?.lastPrompt) {
+                      setSelectedPrompt({ agentType: node.data.type, prompt: node.data.lastPrompt });
+                      setPromptModalOpen(true);
+                    }
+                  },
+                },
+              };
+              
+              // Add node to canvas
+              setNodes((nds: any) => [...nds, additionalNode]);
+              
+              // Create connection edge from source node to new agent
+              const newEdge: any = {
+                id: `e${nodeId}-${additionalNodeId}`,
+                source: nodeId,
+                target: additionalNodeId,
+                animated: enableEdgeAnimations && !isDragging,
+              };
+              setEdges((eds: any) => [...eds, newEdge]);
+              
+              console.log(`[Canvas] ✅ Additional ${agentNode.data.type} agent ${i} spawned:`, {
+                nodeId: additionalNodeId,
+                agentId: additionalAgentId,
+                position: newPosition,
+                nickname
+              });
+              
+              // Auto-generate content for the additional node after a short delay
+              setTimeout(() => {
+                handleGenerate(additionalNodeId);
+              }, i * 500); // Stagger generation to avoid overwhelming the system
+              
+            } catch (error) {
+              console.error(`Failed to spawn additional ${agentNode.data.type} agent ${i}:`, error);
+              toast.error(`Failed to spawn additional ${agentNode.data.type} agent ${i}`);
+            }
+          }
+          
+          toast.success(`🎨 ${imageCount} ${agentNode.data.type} agents will generate variations!`);
+        }
       }
     } catch (error: any) {
       console.error("[Canvas] Generation error:", error);
@@ -1280,7 +1484,7 @@ IMPORTANT INSTRUCTIONS:
         setTimeout(() => {
           // Different tip messages for image agents vs text agents (now using unique nicknames)
           const nickname = agentNode.data.nickname || `${agentNode.data.type.toUpperCase()}_AGENT`;
-          const isImageAgent = agentNode.data.type === "hero-image" || agentNode.data.type === "lifestyle-image";
+          const isImageAgent = agentNode.data.type === "hero-image" || agentNode.data.type === "lifestyle-image" || agentNode.data.type === "infographic";
           const tipContent = isImageAgent 
             ? `💡 Tip: You can regenerate this ${agentNode.data.type} anytime by mentioning @${nickname} and describing what changes you want. For example: "@${nickname} try a different angle" or "@${nickname} ${agentNode.data.type === "lifestyle-image" ? "show it in a kitchen setting" : "with better lighting"}"`
             : `💡 Tip: You can regenerate this ${agentNode.data.type} anytime by mentioning @${nickname} and describing what changes you want. For example: "@${nickname} make it more casual" or "@${nickname} try again with a focus on benefits"`;
@@ -1650,7 +1854,7 @@ IMPORTANT INSTRUCTIONS:
           draft: "",
           status: "idle",
           connections: [productId],
-          onGenerate: () => handleGenerate(nodeId),
+          onGenerate: (imgCount?: number) => handleGenerate(nodeId, undefined, undefined, imgCount),
           onChat: () => handleChatButtonClick(nodeId),
           onView: () => setSelectedNodeForModal(nodeId),
           onRegenerate: () => handleRegenerateClick(nodeId),
@@ -2307,7 +2511,7 @@ IMPORTANT INSTRUCTIONS:
             draft: "",
             status: "idle",
             connections: [],
-            onGenerate: () => handleGenerate(nodeId),
+            onGenerate: (imgCount?: number) => handleGenerate(nodeId, undefined, undefined, imgCount),
             onChat: () => handleChatButtonClick(nodeId),
             onView: () => setSelectedNodeForModal(nodeId),
             onRegenerate: () => handleRegenerateClick(nodeId),
@@ -2420,7 +2624,7 @@ IMPORTANT INSTRUCTIONS:
             thumbnailUrl: agent.imageUrl,
             status: agent.status,
             connections: agent.connections,
-            onGenerate: () => handleGenerate(`agent_${agent.type}_${agent._id}`),
+            onGenerate: (imgCount?: number) => handleGenerate(`agent_${agent.type}_${agent._id}`, undefined, undefined, imgCount),
             onChat: () => handleChatButtonClick(`agent_${agent.type}_${agent._id}`),
             onView: () => setSelectedNodeForModal(`agent_${agent.type}_${agent._id}`),
             onRegenerate: () => handleRegenerateClick(`agent_${agent.type}_${agent._id}`),

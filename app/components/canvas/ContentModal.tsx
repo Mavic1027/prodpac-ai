@@ -77,7 +77,7 @@ export function ContentModal({ isOpen, onClose, nodeData, onUpdate, productData,
 
   const handleCopy = async () => {
     // For image types, copy the image URL instead of text content
-    if ((nodeData?.type === "hero-image" || nodeData?.type === "lifestyle-image") && (nodeData.imageUrl || nodeData.thumbnailUrl)) {
+    if ((nodeData?.type === "hero-image" || nodeData?.type === "lifestyle-image" || nodeData?.type === "infographic") && (nodeData.imageUrl || nodeData.thumbnailUrl)) {
       await navigator.clipboard.writeText(nodeData.imageUrl || nodeData.thumbnailUrl || "");
       setCopied(true);
       toast.success("Image URL copied to clipboard!");
@@ -123,7 +123,7 @@ export function ContentModal({ isOpen, onClose, nodeData, onUpdate, productData,
   const showTabs = nodeData.type === "title" || nodeData.type === "description" || nodeData.type === "bullet-points";
 
   // Show preview modal for image agents (hero and lifestyle)
-  if (showPreview && (nodeData.type === "hero-image" || nodeData.type === "lifestyle-image")) {
+  if (showPreview && (nodeData.type === "hero-image" || nodeData.type === "lifestyle-image" || nodeData.type === "infographic")) {
     const isHeroImage = nodeData.type === "hero-image";
     const isLifestyleImage = nodeData.type === "lifestyle-image";
     
@@ -202,7 +202,7 @@ export function ContentModal({ isOpen, onClose, nodeData, onUpdate, productData,
               </div>
             </div>
             <div className="flex items-center gap-2">
-              {(nodeData.type === "hero-image" || nodeData.type === "lifestyle-image") && (
+              {(nodeData.type === "hero-image" || nodeData.type === "lifestyle-image" || nodeData.type === "infographic") && (
                 <Button
                   variant="outline"
                   size="sm"
@@ -227,7 +227,7 @@ export function ContentModal({ isOpen, onClose, nodeData, onUpdate, productData,
                 ) : (
                   <>
                     <Copy className="h-4 w-4" />
-                    {(nodeData.type === "hero-image" || nodeData.type === "lifestyle-image") ? "Copy URL" : "Copy"}
+                    {(nodeData.type === "hero-image" || nodeData.type === "lifestyle-image" || nodeData.type === "infographic") ? "Copy URL" : "Copy"}
                   </>
                 )}
               </Button>
