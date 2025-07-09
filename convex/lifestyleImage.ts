@@ -246,9 +246,402 @@ function buildHackathonPrompt(
   return prompt;
 }
 
+// Enhanced conflict resolution function for multiple variables
+function resolvePromptConflicts(basePrompt: string, userInstructions: string): string {
+  if (!userInstructions.trim()) return basePrompt;
+  
+  let resolvedPrompt = basePrompt;
+  const userLower = userInstructions.toLowerCase();
+  
+  // Dynamic variable replacement system for lifestyle images
+  const variableReplacements = [];
+  
+  // Person/User variable detection and replacement
+  const personKeywords = ['person', 'user', 'model', 'mom', 'dad', 'teen', 'teenager', 'senior', 'woman', 'man', 'child', 'adult', 'elderly', 'young', 'professional', 'athlete', 'student'];
+  const personMatch = personKeywords.find(keyword => userLower.includes(keyword));
+  if (personMatch) {
+    let personReplacement = '';
+    if (userLower.includes('mom') || userLower.includes('mother')) {
+      personReplacement = 'mom (30s-40s)';
+    } else if (userLower.includes('dad') || userLower.includes('father')) {
+      personReplacement = 'dad (30s-40s)';
+    } else if (userLower.includes('teen') || userLower.includes('teenager')) {
+      personReplacement = 'teenager (16-19)';
+    } else if (userLower.includes('senior') || userLower.includes('elderly')) {
+      personReplacement = 'senior adult (60+)';
+    } else if (userLower.includes('professional')) {
+      personReplacement = 'professional (25-45)';
+    } else if (userLower.includes('athlete')) {
+      personReplacement = 'athlete/fitness enthusiast (20s-30s)';
+    } else if (userLower.includes('student')) {
+      personReplacement = 'college student (18-25)';
+    } else if (userLower.includes('young')) {
+      personReplacement = 'young adult (20s-30s)';
+    } else {
+      personReplacement = `${personMatch} (appropriate age demographic)`;
+    }
+    
+    variableReplacements.push({
+      pattern: /Target audience: [^\n]+/g,
+      replacement: `Target audience: ${personReplacement}`,
+      type: 'person'
+    });
+    console.log(`[Lifestyle Image] Replaced person with: ${personReplacement}`);
+  }
+  
+  // Setting/Location variable detection and replacement  
+  const settingKeywords = ['setting', 'location', 'place', 'kitchen', 'bedroom', 'office', 'gym', 'beach', 'park', 'outdoor', 'indoor', 'backyard', 'garden', 'living room', 'bathroom', 'garage', 'studio', 'restaurant', 'cafe', 'home', 'work'];
+  const settingMatch = settingKeywords.find(keyword => userLower.includes(keyword));
+  if (settingMatch) {
+    let settingReplacement = '';
+    if (userLower.includes('kitchen')) {
+      settingReplacement = 'modern kitchen with natural lighting';
+    } else if (userLower.includes('bedroom')) {
+      settingReplacement = 'clean, well-lit bedroom';
+    } else if (userLower.includes('office')) {
+      settingReplacement = 'professional office or home office space';
+    } else if (userLower.includes('gym')) {
+      settingReplacement = 'well-equipped gym or fitness environment';
+    } else if (userLower.includes('beach')) {
+      settingReplacement = 'beautiful beach or coastal outdoor setting';
+    } else if (userLower.includes('park')) {
+      settingReplacement = 'scenic park or outdoor recreational area';
+    } else if (userLower.includes('backyard') || userLower.includes('garden')) {
+      settingReplacement = 'well-maintained backyard or garden space';
+    } else if (userLower.includes('living room')) {
+      settingReplacement = 'comfortable, modern living room';
+    } else if (userLower.includes('outdoor')) {
+      settingReplacement = 'appropriate outdoor environment';
+    } else if (userLower.includes('indoor')) {
+      settingReplacement = 'suitable indoor environment';
+    } else {
+      settingReplacement = `${settingMatch} environment`;
+    }
+    
+    // Replace the scene guidance section
+    const scenePattern = /• Pick a realistic environment that naturally fits[^•]+/gs;
+    variableReplacements.push({
+      pattern: scenePattern,
+      replacement: `• Scene: ${settingReplacement}\n`,
+      type: 'setting'
+    });
+    console.log(`[Lifestyle Image] Replaced setting with: ${settingReplacement}`);
+  }
+  
+  // Activity variable detection and replacement
+  const activityKeywords = ['activity', 'action', 'using', 'holding', 'doing', 'performing', 'exercise', 'exercising', 'work', 'working', 'play', 'playing', 'cook', 'cooking', 'clean', 'cleaning', 'relax', 'relaxing', 'study', 'studying'];
+  const activityMatch = activityKeywords.find(keyword => userLower.includes(keyword));
+  if (activityMatch) {
+    let activityReplacement = '';
+    if (userLower.includes('cook') || userLower.includes('cooking')) {
+      activityReplacement = 'cooking or meal preparation';
+    } else if (userLower.includes('exercise') || userLower.includes('exercising') || userLower.includes('workout')) {
+      activityReplacement = 'exercising or working out';
+    } else if (userLower.includes('work') || userLower.includes('working')) {
+      activityReplacement = 'working or being productive';
+    } else if (userLower.includes('relax') || userLower.includes('relaxing')) {
+      activityReplacement = 'relaxing or leisure activity';
+    } else if (userLower.includes('clean') || userLower.includes('cleaning')) {
+      activityReplacement = 'cleaning or organizing';
+    } else if (userLower.includes('study') || userLower.includes('studying')) {
+      activityReplacement = 'studying or learning';
+    } else {
+      activityReplacement = `${activityMatch}`;
+    }
+    
+    // Replace the interaction description
+    const interactionPattern = /• Place a [^•]+model using or interacting with the product[^•]+/gs;
+    variableReplacements.push({
+      pattern: interactionPattern,
+      replacement: `• Show the model ${activityReplacement} with the product in a way that highlights its key features.\n`,
+      type: 'activity'
+    });
+    console.log(`[Lifestyle Image] Replaced activity with: ${activityReplacement}`);
+  }
+  
+  // Apply all replacements
+  for (const replacement of variableReplacements) {
+    resolvedPrompt = resolvedPrompt.replace(replacement.pattern, replacement.replacement);
+  }
+  
+  // If no specific variables were replaced but user has instructions, add as context
+  if (variableReplacements.length === 0) {
+    console.log(`[Lifestyle Image] No specific variables detected, adding as general context enhancement`);
+  }
+  
+  return resolvedPrompt;
+}
+
+// Add prompt variation function based on agent instance and product context
+function applyPromptVariations(basePrompt: string, agentInstance: number, productData: any, profileData: any): string {
+  console.log(`[Lifestyle Image] Applying prompt variations for agent instance ${agentInstance}`);
+  
+  // Extract product context for intelligent variations
+  const targetAudience = productData.targetAudience === "Custom" && productData.customTargetAudience 
+    ? productData.customTargetAudience 
+    : productData.targetAudience || profileData?.targetAudience || "general audience";
+  
+  const productCategory = productData.productCategory || profileData?.productCategory || "General Products";
+  
+  console.log(`[Lifestyle Image] Product context: Category=${productCategory}, Audience=${targetAudience}`);
+  
+  // Smart context-aware variations
+  type VariationConfig = {
+    person: string;
+    setting: string;
+    context: string;
+    focus: string;
+  };
+  
+  let variations: { [key: number]: VariationConfig } = {
+    1: { person: targetAudience, setting: "home environment", context: "daily routine", focus: "convenience and practical use" },
+    2: { person: targetAudience, setting: "outdoor environment", context: "leisure activities", focus: "outdoor use and benefits" },
+    3: { person: targetAudience, setting: "social environment", context: "social activities", focus: "social confidence" },
+    4: { person: targetAudience, setting: "professional environment", context: "professional occasions", focus: "quality and professional applications" }
+  };
+  
+  // Detect specific context combinations and create targeted variations
+  const audienceLower = targetAudience.toLowerCase();
+  const categoryLower = productCategory.toLowerCase();
+  
+  // Golf-related contexts
+  if (audienceLower.includes('golf') || categoryLower.includes('golf') || audienceLower.includes('golfer')) {
+    variations = {
+      1: {
+        person: `${targetAudience}`,
+        setting: "golf course during active play",
+        context: "mid-swing action shot showing product in dynamic use",
+        focus: "ACTION SHOT: Show ${targetAudience} in mid-golf swing or putting stance, with product clearly visible during athletic movement. Focus on dynamic motion and performance."
+      },
+      2: {
+        person: `${targetAudience}`,
+        setting: "golf course preparation area with golf bag and equipment",
+        context: "getting ready for golf, organizing gear and equipment",
+        focus: "PREPARATION SCENE: Show ${targetAudience} standing full-body next to golf bag, selecting clubs or organizing equipment, with product as part of complete golf outfit. Focus on the ritual of preparing for golf."
+      },
+      3: {
+        person: `${targetAudience}`,
+        setting: "golf cart or clubhouse social environment",
+        context: "social golf moment, interacting with others or enjoying break",
+        focus: "SOCIAL MOMENT: Show ${targetAudience} in golf cart between holes, or casual conversation at clubhouse, with product visible during social interaction. Focus on the community aspect of golf."
+      },
+      4: {
+        person: `${targetAudience}`,
+        setting: "golf green during quiet moment",
+        context: "close-up lifestyle moment, adjusting product or taking a break",
+        focus: "INTIMATE MOMENT: Close-up or portrait shot of ${targetAudience} adjusting product (like visor), taking a drink, or quiet moment of focus on the green. Show product as personal gear that enhances the experience."
+      }
+    };
+  }
+  // Tennis-related contexts
+  else if (audienceLower.includes('tennis') || categoryLower.includes('tennis')) {
+    variations = {
+      1: {
+        person: `${targetAudience}`,
+        setting: "tennis court during active play",
+        context: "action shot during tennis match or practice",
+        focus: "ACTION SHOT: Show ${targetAudience} in mid-serve, forehand swing, or athletic movement, with product clearly visible during dynamic tennis action. Focus on performance and movement."
+      },
+      2: {
+        person: `${targetAudience}`,
+        setting: "tennis court sideline with racquet and gear",
+        context: "between sets, organizing equipment and taking break",
+        focus: "GEAR MOMENT: Show ${targetAudience} full-body with tennis racquet, towel, and equipment, with product as part of complete tennis outfit. Focus on the professional preparation aspect."
+      },
+      3: {
+        person: `${targetAudience}`,
+        setting: "tennis club social area or bench",
+        context: "post-match social interaction or rest",
+        focus: "SOCIAL MOMENT: Show ${targetAudience} sitting on bench, talking with partner, or casual moment at tennis club, with product visible during social interaction. Focus on tennis community."
+      },
+      4: {
+        person: `${targetAudience}`,
+        setting: "tennis court close-up during break",
+        context: "intimate moment adjusting product or hydrating",
+        focus: "PERSONAL MOMENT: Close-up shot of ${targetAudience} adjusting product, wiping sweat, or drinking water between games. Show product as essential personal gear."
+      }
+    };
+  }
+  // Running/Fitness contexts
+  else if (audienceLower.includes('run') || audienceLower.includes('fitness') || audienceLower.includes('athlete') || categoryLower.includes('fitness') || categoryLower.includes('sports')) {
+    variations = {
+      1: {
+        person: `${targetAudience}`,
+        setting: "outdoor trail or track during active workout",
+        context: "mid-run or active exercise motion",
+        focus: "ACTION SHOT: Show ${targetAudience} in mid-stride running, jumping, or dynamic exercise movement, with product clearly visible during athletic performance. Focus on motion and energy."
+      },
+      2: {
+        person: `${targetAudience}`,
+        setting: "gym or fitness facility with equipment",
+        context: "strength training or workout preparation",
+        focus: "WORKOUT SCENE: Show ${targetAudience} full-body with weights, exercise equipment, or gym setup, with product as part of complete workout attire. Focus on serious training preparation."
+      },
+      3: {
+        person: `${targetAudience}`,
+        setting: "post-workout recovery area or locker room",
+        context: "cooling down, hydrating, or post-workout social moment",
+        focus: "RECOVERY MOMENT: Show ${targetAudience} stretching, drinking water, or casual conversation after workout, with product visible during recovery. Focus on the post-exercise lifestyle."
+      },
+      4: {
+        person: `${targetAudience}`,
+        setting: "outdoor fitness environment during break",
+        context: "checking fitness tracker, taking selfie, or quiet moment",
+        focus: "PERSONAL MOMENT: Close-up or portrait of ${targetAudience} checking phone/watch, adjusting product, or taking a break. Show product as personal fitness companion."
+      }
+    };
+  }
+  // Kitchen/Cooking contexts
+  else if (audienceLower.includes('cook') || audienceLower.includes('chef') || categoryLower.includes('kitchen') || categoryLower.includes('cooking')) {
+    variations = {
+      1: {
+        person: `${targetAudience}`,
+        setting: "kitchen during active cooking",
+        context: "mid-cooking action, stirring, chopping, or preparing food",
+        focus: "ACTION SHOT: Show ${targetAudience} actively cooking, stirring pot, chopping vegetables, or hands-on food preparation, with product clearly visible during cooking action. Focus on culinary skill in motion."
+      },
+      2: {
+        person: `${targetAudience}`,
+        setting: "kitchen with ingredients and cooking tools laid out",
+        context: "meal planning and ingredient preparation",
+        focus: "PREPARATION SCENE: Show ${targetAudience} full-body organizing ingredients, reading recipe, or setting up cooking station, with product as part of complete cooking setup. Focus on the ritual of meal preparation."
+      },
+      3: {
+        person: `${targetAudience}`,
+        setting: "dining area or kitchen island with finished meal",
+        context: "presenting finished dish or sharing meal with others",
+        focus: "PRESENTATION MOMENT: Show ${targetAudience} serving food, setting table, or sharing meal with family/friends, with product visible during social dining. Focus on the joy of sharing food."
+      },
+      4: {
+        person: `${targetAudience}`,
+        setting: "kitchen during quiet cooking moment",
+        context: "tasting food, taking break, or enjoying cooking process",
+        focus: "INTIMATE MOMENT: Close-up of ${targetAudience} tasting food, adjusting seasoning, or peaceful moment during cooking, with product as personal cooking companion. Focus on the meditative aspect of cooking."
+      }
+    };
+  }
+  // Parent/Family contexts
+  else if (audienceLower.includes('parent') || audienceLower.includes('mom') || audienceLower.includes('dad') || audienceLower.includes('family')) {
+    variations = {
+      1: {
+        person: `${targetAudience}`,
+        setting: "home during busy family activity",
+        context: "multitasking, helping children, or managing household tasks",
+        focus: "ACTION SHOT: Show ${targetAudience} in motion helping children, carrying items, or managing multiple tasks, with product clearly visible during active parenting. Focus on the dynamic nature of family life."
+      },
+      2: {
+        person: `${targetAudience}`,
+        setting: "family space with children and family items",
+        context: "family time, playing with children, or organizing family activities",
+        focus: "FAMILY SCENE: Show ${targetAudience} full-body with children, toys, or family gear, with product as part of complete family lifestyle. Focus on the joy of family interaction."
+      },
+      3: {
+        person: `${targetAudience}`,
+        setting: "quiet family moment or evening routine",
+        context: "bedtime routine, reading to children, or peaceful family time",
+        focus: "NURTURING MOMENT: Show ${targetAudience} reading to child, tucking in, or gentle family interaction, with product visible during tender moments. Focus on the caring aspect of parenting."
+      },
+      4: {
+        person: `${targetAudience}`,
+        setting: "personal space during rare quiet moment",
+        context: "self-care break, coffee time, or personal reflection",
+        focus: "PERSONAL MOMENT: Close-up of ${targetAudience} enjoying coffee, reading, or taking a personal break, with product as personal comfort item. Focus on the importance of self-care for parents."
+      }
+    };
+  }
+  // Professional/Work contexts
+  else if (audienceLower.includes('professional') || audienceLower.includes('business') || audienceLower.includes('office') || audienceLower.includes('work')) {
+    variations = {
+      1: {
+        person: `${targetAudience}`,
+        setting: "office during active work",
+        context: "focused work session, presenting, or collaborative meeting",
+        focus: "ACTION SHOT: Show ${targetAudience} actively working at computer, presenting to colleagues, or engaged in dynamic work activity, with product clearly visible during professional performance. Focus on competence and focus."
+      },
+      2: {
+        person: `${targetAudience}`,
+        setting: "office or workspace with professional tools",
+        context: "workspace organization, planning, or preparing for work",
+        focus: "WORKSPACE SCENE: Show ${targetAudience} full-body with desk, documents, or professional equipment, with product as part of complete professional setup. Focus on preparation and organization."
+      },
+      3: {
+        person: `${targetAudience}`,
+        setting: "business networking or meeting environment",
+        context: "professional networking, client meeting, or business social event",
+        focus: "NETWORKING MOMENT: Show ${targetAudience} shaking hands, in conversation, or at business event, with product visible during professional interaction. Focus on professional relationships."
+      },
+      4: {
+        person: `${targetAudience}`,
+        setting: "quiet office moment or break area",
+        context: "coffee break, reflection, or personal moment at work",
+        focus: "PERSONAL MOMENT: Close-up of ${targetAudience} drinking coffee, looking out window, or quiet moment of reflection, with product as personal professional companion. Focus on work-life balance."
+      }
+    };
+  }
+  // Generic fallback - only used if no specific context detected
+  else {
+    variations = {
+      1: {
+        person: `${targetAudience}`,
+        setting: "home environment during active use",
+        context: "person actively using or interacting with product in daily routine",
+        focus: "ACTION SHOT: Show ${targetAudience} actively using the product in daily routine, with product clearly visible during functional use. Focus on practical application and everyday utility."
+      },
+      2: {
+        person: `${targetAudience}`,
+        setting: "lifestyle environment with personal items",
+        context: "product as part of complete lifestyle setup",
+        focus: "LIFESTYLE SCENE: Show ${targetAudience} full-body with product as part of complete personal style or setup, surrounded by relevant lifestyle items. Focus on how product fits into their world."
+      },
+      3: {
+        person: `${targetAudience}`,
+        setting: "social environment with others",
+        context: "sharing or enjoying product in social setting",
+        focus: "SOCIAL MOMENT: Show ${targetAudience} using product while interacting with others, sharing experience, or in community setting. Focus on social confidence and connection."
+      },
+      4: {
+        person: `${targetAudience}`,
+        setting: "personal space during quiet moment",
+        context: "intimate personal moment with product",
+        focus: "PERSONAL MOMENT: Close-up or portrait shot of ${targetAudience} in quiet moment with product, showing personal connection or satisfaction. Focus on emotional connection and personal value."
+      }
+    };
+  }
+  
+  // Apply the variation
+  const variation = variations[agentInstance as keyof typeof variations] || variations[1];
+  
+  let modifiedPrompt = basePrompt;
+  
+  // Replace target audience with variation-specific person (keep original audience)
+  modifiedPrompt = modifiedPrompt.replace(
+    /Target audience: [^\n]+/g,
+    `Target audience: ${variation.person}`
+  );
+  
+  // Replace scene guidance with variation-specific setting and storytelling context
+  const scenePattern = /• Pick a realistic environment that naturally fits[^•]+/gs;
+  modifiedPrompt = modifiedPrompt.replace(
+    scenePattern,
+    `• Scene: ${variation.setting}\n• Story: ${variation.context}\n`
+  );
+  
+  // Replace the entire interaction description with variation-specific storytelling focus
+  const interactionPattern = /(• Place a [^•]+model using or interacting with the product in a way that spotlights[^•]+)/gs;
+  modifiedPrompt = modifiedPrompt.replace(
+    interactionPattern,
+    `• ${variation.focus}\n`
+  );
+  
+  console.log(`[Lifestyle Image] Applied variation ${agentInstance}: ${variation.person} in ${variation.setting} focusing on ${variation.focus}`);
+  
+  return modifiedPrompt;
+}
+
 export const generateLifestyleImage = action({
   args: {
     agentType: v.literal("lifestyle-image"),
+    agentInstance: v.optional(v.number()),
     productId: v.optional(v.id("products")),
     productImages: v.array(
       v.object({
@@ -301,6 +694,7 @@ export const generateLifestyleImage = action({
     console.log("[Lifestyle Image] Starting lifestyle image generation process");
     console.log("[Lifestyle Image] Args received:", {
       agentType: args.agentType,
+      agentInstance: args.agentInstance,
       productId: args.productId,
       imageCount: args.productImages.length,
       hasProductName: !!args.productData.productName,
@@ -391,10 +785,26 @@ export const generateLifestyleImage = action({
         args.profileData
       );
 
-      // If user provided specific instructions via chat, incorporate them
+      // Apply prompt variations based on agent instance if provided
+      if (args.agentInstance && args.agentInstance >= 1 && args.agentInstance <= 4) {
+        console.log("[Lifestyle Image] Applying prompt variations for agent instance", args.agentInstance);
+        lifestyleImagePrompt = applyPromptVariations(lifestyleImagePrompt, args.agentInstance, productData, args.profileData);
+      } else {
+        console.log("[Lifestyle Image] No agent instance provided or invalid, using base prompt");
+      }
+
+      // If user provided specific instructions via chat, resolve conflicts first
       if (args.additionalContext && args.additionalContext.trim()) {
         console.log("[Lifestyle Image] Adding user-specific instructions:", args.additionalContext);
-        lifestyleImagePrompt += `\n\n🎯 USER REQUEST: The user specifically requested: "${args.additionalContext}"\nPlease incorporate this request while maintaining the lifestyle context and Amazon compliance.`;
+        console.log("[Lifestyle Image] Resolving prompt conflicts with user instructions...");
+        
+        // Apply smart conflict resolution that replaces variables intelligently
+        lifestyleImagePrompt = resolvePromptConflicts(lifestyleImagePrompt, args.additionalContext);
+        
+        // Now add user instructions as primary directive
+        lifestyleImagePrompt += `\n\n🎯 PRIMARY USER REQUEST: "${args.additionalContext}"\n`;
+        lifestyleImagePrompt += `IMPORTANT: The user's request above is the PRIMARY instruction. Follow it precisely while maintaining lifestyle context and Amazon compliance.\n`;
+        lifestyleImagePrompt += `If there are any conflicts between the user's request and other instructions, ALWAYS prioritize the user's request.`;
       }
 
       // DEBUG: Log the exact prompt being sent to AI

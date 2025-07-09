@@ -174,7 +174,7 @@ function InnerCanvas({
   const generateContent = useAction(api.aiHackathon.generateContentSimple);
   const generateHeroImage = useAction(api.heroImage.generateHeroImage);
   const generateLifestyleImage = useAction(api.lifestyleImage.generateLifestyleImage);
-  const generateInfographic = useAction(api.infographic.generateInfographic);
+  // const generateInfographic = useAction(api.infographic.generateInfographic); // TODO: Not implemented yet
   const refineContent = useAction(api.chat.refineContent);
   const refineHeroImage = useAction(api.heroImageRefine.refineHeroImage);
 
@@ -443,6 +443,14 @@ function InnerCanvas({
           )
         );
 
+        // 🎨 Calculate agent instance number for prompt variations
+        const agentInstance = (() => {
+          const nickname = agentNode.data.nickname || "";
+          // Extract instance number from nickname: @HERO-IMAGE_AGENT_2 -> 2
+          const match = nickname.match(/_(\d+)$/);
+          return match ? parseInt(match[1]) : 1; // Default to 1 if no suffix
+        })();
+
         // Generate hero image with vision API
         console.log("[Canvas] Calling generateHeroImage action with:", {
           productId: videoNode.data.productId,
@@ -450,7 +458,8 @@ function InnerCanvas({
           hasProductData: !!productData,
           hasFeatures: !!productData.features?.length,
           connectedAgentsCount: connectedAgentOutputs.length,
-          hasProfile: !!profileData
+          hasProfile: !!profileData,
+          agentInstance: agentInstance
         });
         
         const heroImageResult = await generateHeroImage({
@@ -461,6 +470,7 @@ function InnerCanvas({
           connectedAgentOutputs,
           profileData,
           additionalContext,
+          agentInstance: agentInstance, // Pass agent instance for prompt variations
         });
         
         console.log("[Canvas] Hero image generation completed");
@@ -534,6 +544,14 @@ function InnerCanvas({
         
         console.log("[Canvas] Product images prepared:", productImages.length);
         
+        // 🎨 Calculate agent instance number for lifestyle prompt variations
+        const agentInstance = (() => {
+          const nickname = agentNode.data.nickname || "";
+          // Extract instance number from nickname: @LIFESTYLE-IMAGE_AGENT_2 -> 2
+          const match = nickname.match(/_(\d+)$/);
+          return match ? parseInt(match[1]) : 1; // Default to 1 if no suffix
+        })();
+        
         // Update progress: Generating with AI
         setNodes((nds: any) =>
           nds.map((node: any) =>
@@ -559,7 +577,8 @@ function InnerCanvas({
           hasProductData: !!productData,
           hasFeatures: !!productData.features?.length,
           connectedAgentsCount: connectedAgentOutputs.length,
-          hasProfile: !!profileData
+          hasProfile: !!profileData,
+          agentInstance: agentInstance
         });
         
         const lifestyleImageResult = await generateLifestyleImage({
@@ -570,6 +589,7 @@ function InnerCanvas({
           connectedAgentOutputs,
           profileData,
           additionalContext,
+          agentInstance: agentInstance, // Pass agent instance for lifestyle prompt variations
         });
         
         console.log("[Canvas] Lifestyle image generation completed");
@@ -667,59 +687,10 @@ function InnerCanvas({
         );
 
         // Generate infographic with vision API
-        console.log("[Canvas] Calling generateInfographic action with:", {
-          productId: videoNode.data.productId,
-          imageCount: productImages.length,
-          hasProductData: !!productData,
-          hasFeatures: !!productData.features?.length,
-          connectedAgentsCount: connectedAgentOutputs.length,
-          hasProfile: !!profileData
-        });
-        
-        const infographicResult = await generateInfographic({
-          agentType: "infographic",
-          productId: videoNode.data.productId as Id<"products"> | undefined,
-          productImages: productImages,
-          productData,
-          connectedAgentOutputs,
-          profileData,
-          additionalContext,
-        });
-        
-        console.log("[Canvas] Infographic generation completed");
-        console.log("[Canvas] Concept received:", infographicResult.concept.substring(0, 100) + "...");
-        console.log("[Canvas] Image URL received:", !!infographicResult.imageUrl);
-        console.log("[Canvas] Full infographic URL:", infographicResult.imageUrl);
-        console.log("[Canvas] Storage ID received:", infographicResult.storageId);
-        
-        result = infographicResult.concept;
-        imageUrl = infographicResult.imageUrl;
-        imageStorageId = infographicResult.storageId;
-        
-        console.log("[Canvas] After assignment - imageUrl:", imageUrl);
-        console.log("[Canvas] After assignment - imageStorageId:", imageStorageId);
-        
-        // Store the prompt for infographic too
-        if (infographicResult.prompt) {
-          setNodes((nds: any) =>
-            nds.map((node: any) =>
-              node.id === nodeId
-                ? { 
-                    ...node, 
-                    data: { 
-                      ...node.data, 
-                      lastPrompt: infographicResult.prompt
-                    } 
-                  }
-                : node
-            )
-          );
-        }
-        
-        // If no image was generated due to safety issues, inform the user
-        if (!imageUrl) {
-          toast.warning("Infographic concept created, but image generation was blocked by safety filters. Try uploading different images or adjusting your requirements.");
-        }
+        // TODO: Infographic generation not implemented yet
+        console.log("[Canvas] Infographic generation not implemented yet");
+        toast.error("Infographic generation not implemented yet");
+        return;
       } else {
         // Update progress based on agent type
         const progressMessages = {
@@ -869,6 +840,23 @@ function InnerCanvas({
       // ✅ Multi-output spawning for visual agents
       if (imageCount && imageCount > 1 && (agentNode.data.type === "hero-image" || agentNode.data.type === "lifestyle-image" || agentNode.data.type === "infographic")) {
         console.log(`[Canvas] 🎨 Multi-output: Spawning ${imageCount - 1} additional ${agentNode.data.type} nodes`);
+        
+        // ✅ 4-AGENT LIMIT: Check if spawning additional agents of this type would exceed the limit
+        const imageAgentTypes = ["hero-image", "lifestyle-image"];
+        if (imageAgentTypes.includes(agentNode.data.type)) {
+          const existingAgentsOfThisType = nodesRef.current.filter((n: any) => 
+            n.type === 'agent' && n.data.type === agentNode.data.type
+          );
+          const totalAfterSpawning = existingAgentsOfThisType.length + (imageCount - 1);
+          
+          if (totalAfterSpawning > 4) {
+            const maxAllowed = 4 - existingAgentsOfThisType.length;
+            toast.error(`Cannot spawn ${imageCount - 1} agents. Maximum ${maxAllowed} allowed`, {
+              description: `You have ${existingAgentsOfThisType.length} ${agentNode.data.type} agents. 4 ${agentNode.data.type} agents maximum per project.`,
+            });
+            return;
+          }
+        }
         
         const productNode = nodesRef.current.find((n: any) => n.type === 'video');
         if (productNode?.data?.productId) {
@@ -1833,6 +1821,21 @@ IMPORTANT INSTRUCTIONS:
         }
       }
       
+      // ✅ 4-AGENT LIMIT: Check if adding this specific agent type would exceed the limit
+      const imageAgentTypes = ["hero-image", "lifestyle-image"];
+      if (imageAgentTypes.includes(agentType)) {
+        const existingAgentsOfThisType = nodesRef.current.filter((n: any) => 
+          n.type === 'agent' && n.data.type === agentType
+        );
+        
+        if (existingAgentsOfThisType.length >= 4) {
+          toast.error(`Maximum 4 ${agentType} agents allowed per project`, {
+            description: `You currently have ${existingAgentsOfThisType.length} ${agentType} agents. Please delete some before adding more.`,
+          });
+          return;
+        }
+      }
+      
       const agentId = await createAgent({
         productId,
         type: agentType,
@@ -2485,6 +2488,21 @@ IMPORTANT INSTRUCTIONS:
       if (!productNode) {
         toast.error("Please add a product image first before adding agents");
         return;
+      }
+
+      // ✅ 4-AGENT LIMIT: Check if adding this specific agent type would exceed the limit
+      const imageAgentTypes = ["hero-image", "lifestyle-image"];
+      if (imageAgentTypes.includes(type)) {
+        const existingAgentsOfThisType = nodes.filter((n: any) => 
+          n.type === 'agent' && n.data.type === type
+        );
+        
+        if (existingAgentsOfThisType.length >= 4) {
+          toast.error(`Maximum 4 ${type} agents allowed per project`, {
+            description: `You currently have ${existingAgentsOfThisType.length} ${type} agents. Please delete some before adding more.`,
+          });
+          return;
+        }
       }
 
       // Create agent in database

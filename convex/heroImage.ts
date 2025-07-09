@@ -217,6 +217,118 @@ function buildHackathonPrompt(
   return prompt;
 }
 
+// Function to apply prompt variations for different agent instances
+function applyPromptVariations(agentType: string, basePrompt: string, agentInstance: number): string {
+  // Only apply variations to hero-image agents for now
+  if (agentType !== "hero-image" || agentInstance === 1) {
+    return basePrompt; // Return original prompt for non-hero agents or first instance
+  }
+
+  // For hero images, we need to REPLACE the angle instruction, not append to it
+  const angleReplacements = {
+    2: "Angle: perfect side profile view (90° side angle)",
+    3: "Angle: straight-on front view (0° direct front)",
+    4: "Angle: dramatic overhead view (60° bird's eye perspective)"
+  };
+
+  const angleReplacement = angleReplacements[agentInstance as keyof typeof angleReplacements];
+  if (angleReplacement) {
+    // Replace the existing angle instruction
+    const modifiedPrompt = basePrompt.replace(
+      /Angle: three-quarter \(45°\) front view/g,
+      angleReplacement
+    );
+    
+    // Add specific variation instructions
+    const variationInstructions = {
+      2: "\n\n🎨 SIDE PROFILE FOCUS: Show the complete side silhouette of the product. Emphasize the product's profile, depth, and side details. Perfect for showing product thickness, side features, and overall side design.",
+      3: "\n\n🎨 FRONT-FACING FOCUS: Show the product straight-on, completely centered and symmetrical. Perfect for displaying front branding, labels, and main product features directly facing the camera.",
+      4: "\n\n🎨 OVERHEAD PERSPECTIVE: Capture from above to show the top surface, opening, or interior details. Great for products with interesting top designs, lids, or internal features."
+    };
+
+    const instruction = variationInstructions[agentInstance as keyof typeof variationInstructions];
+    return modifiedPrompt + instruction;
+  }
+
+  return basePrompt; // Fallback to original prompt if no variation found
+}
+
+// Add this function after the imports and before the main action
+function resolvePromptConflicts(basePrompt: string, userInstructions: string): string {
+  if (!userInstructions.trim()) return basePrompt;
+  
+  let resolvedPrompt = basePrompt;
+  const userLower = userInstructions.toLowerCase();
+  
+  // Dynamic angle instruction replacement - prioritize what the user is asking for
+  let angleReplacement = null;
+  let replacementText = '';
+  
+  if (userLower.includes('front') && (userLower.includes('facing') || userLower.includes('view'))) {
+    angleReplacement = 'Angle: straight-on front view (0° direct front)';
+    replacementText = 'straight-on front view (0° direct front)';
+  } else if (userLower.includes('side') && (userLower.includes('profile') || userLower.includes('view'))) {
+    angleReplacement = 'Angle: perfect side profile view (90° side angle)';
+    replacementText = 'perfect side profile view (90° side angle)';
+  } else if (userLower.includes('back') || userLower.includes('behind') || userLower.includes('rear')) {
+    angleReplacement = 'Angle: straight-on back view (180° rear view)';
+    replacementText = 'straight-on back view (180° rear view)';
+  } else if (userLower.includes('left') || userLower.includes('rotate left') || userLower.includes('turn left')) {
+    angleReplacement = 'Angle: left side view (45° left angle)';
+    replacementText = 'left side view (45° left angle)';
+  } else if (userLower.includes('right') || userLower.includes('rotate right') || userLower.includes('turn right')) {
+    angleReplacement = 'Angle: right side view (45° right angle)';
+    replacementText = 'right side view (45° right angle)';
+  } else if (userLower.includes('overhead') || userLower.includes('bird') || userLower.includes('top')) {
+    angleReplacement = 'Angle: TOP-DOWN OVERHEAD VIEW (90° directly above looking down)';
+    replacementText = 'TOP-DOWN OVERHEAD VIEW (90° directly above looking down)';
+    
+    // Add prominent instructions for overhead only
+    resolvedPrompt = `🚨 CRITICAL: OVERHEAD SHOT REQUIRED - Position camera directly above product, looking straight down (90° top-down view). This is the PRIMARY requirement.\n\n${resolvedPrompt}`;
+  }
+  
+  // Apply the angle replacement if we found one
+  if (angleReplacement) {
+    resolvedPrompt = resolvedPrompt.replace(/Angle: [^\\n]+/g, angleReplacement);
+    console.log(`[Hero Image] Replaced angle instruction with: ${replacementText}`);
+    
+    // Add reminder at the end for overhead shots
+    if (userLower.includes('overhead') || userLower.includes('bird') || userLower.includes('top')) {
+      resolvedPrompt += `\n\n🚨 REMINDER: This must be an OVERHEAD shot - camera positioned directly above the product, looking down.`;
+    }
+  }
+  
+  // Check for other conflicting instructions and remove them
+  const userWords = userLower.split(/\\s+/);
+  const conflictPatterns = [
+    // Position conflicts
+    { 
+      pattern: /Position: [^\\n]+/g, 
+      conflicts: ['position', 'placement', 'center', 'left', 'right', 'top', 'bottom'] 
+    },
+    // Lighting conflicts
+    { 
+      pattern: /Lighting: [^\\n]+/g, 
+      conflicts: ['lighting', 'light', 'bright', 'dark', 'shadow', 'illumination'] 
+    },
+    // Background conflicts
+    { 
+      pattern: /Background: [^\\n]+/g, 
+      conflicts: ['background', 'backdrop', 'surface', 'setting'] 
+    }
+  ];
+  
+  for (const conflict of conflictPatterns) {
+    const hasConflict = conflict.conflicts.some(keyword => userWords.includes(keyword));
+    if (hasConflict) {
+      resolvedPrompt = resolvedPrompt.replace(conflict.pattern, '');
+      console.log(`[Hero Image] Removed conflicting instructions matching pattern: ${conflict.pattern}`);
+    }
+  }
+  
+  return resolvedPrompt;
+}
+
 export const generateHeroImage = action({
   args: {
     agentType: v.literal("hero-image"),
@@ -267,6 +379,7 @@ export const generateHeroImage = action({
       })
     ),
     additionalContext: v.optional(v.string()),
+    agentInstance: v.optional(v.number()), // Agent instance number for prompt variations (1-4)
   },
   handler: async (ctx, args): Promise<{ concept: string; imageUrl: string; prompt?: string; storageId?: string }> => {
     console.log("[Hero Image] Starting hero image generation process");
@@ -365,11 +478,31 @@ export const generateHeroImage = action({
         args.profileData
       );
 
-      // If user provided specific instructions via chat, incorporate them
-      if (args.additionalContext && args.additionalContext.trim()) {
-        console.log("[Hero Image] Adding user-specific instructions:", args.additionalContext);
-        heroImagePrompt += `\n\n🎯 USER REQUEST: The user specifically requested: "${args.additionalContext}"\nPlease incorporate this request while maintaining Amazon compliance (white background, studio lighting, etc.).`;
+      // Apply prompt variations based on agent instance
+      const agentInstance = args.agentInstance || 1;
+      console.log(`[Hero Image] Applying prompt variations for agent instance ${agentInstance}`);
+      heroImagePrompt = applyPromptVariations('hero-image', heroImagePrompt, agentInstance);
+
+          // If user provided specific instructions via chat, resolve conflicts first
+    if (args.additionalContext && args.additionalContext.trim()) {
+      console.log("[Hero Image] Adding user-specific instructions:", args.additionalContext);
+      console.log("[Hero Image] Resolving prompt conflicts with user instructions...");
+      
+      // Smart conflict resolution - replaces base instructions with specific photography terms
+      const originalPrompt = heroImagePrompt;
+      heroImagePrompt = resolvePromptConflicts(heroImagePrompt, args.additionalContext);
+      
+      // Check if we made a smart replacement or need to add user instructions
+      if (originalPrompt !== heroImagePrompt) {
+        // Smart replacement was made, add user context for clarity
+        heroImagePrompt += `\n\n🎯 USER CONTEXT: User requested "${args.additionalContext}" - this has been translated into precise photography instructions above.`;
+      } else {
+        // No smart replacement, add user instructions as primary directive
+        heroImagePrompt += `\n\n🎯 PRIMARY USER REQUEST: "${args.additionalContext}"\n`;
+        heroImagePrompt += `IMPORTANT: The user's request above is the PRIMARY instruction. Follow it precisely while maintaining Amazon compliance (white background, studio lighting, etc.).\n`;
+        heroImagePrompt += `If there are any conflicts between the user's request and other instructions, ALWAYS prioritize the user's request.`;
       }
+    }
 
       // DEBUG: Log the exact prompt being sent to AI
       console.log(`[Hero Image] EXACT PROMPT BEING SENT TO AI:`);
