@@ -3,6 +3,139 @@ import { action } from "./_generated/server";
 import { api } from "./_generated/api";
 import OpenAI, { toFile } from "openai";
 
+// Feature parser for Agent 2 dynamic cycling
+function parseIndividualFeatures(keyFeatures: string): string[] {
+  if (!keyFeatures || !keyFeatures.trim()) {
+    return ['key feature'];
+  }
+  
+  // Split on common delimiters and clean up
+  return keyFeatures
+    .split(/[,;•\n]/)
+    .map(feature => feature.trim())
+    .filter(feature => feature.length > 0 && feature.length < 200) // Reasonable feature length
+    .slice(0, 10); // Limit to 10 features max for cycling
+}
+
+// Generate context-aware lifestyle scenes based on product category, audience, and feature
+function generateContextAwareScene(productCategory: string, targetAudience: string, selectedFeature: string, cycleValue: number): string {
+  const categoryLower = productCategory.toLowerCase();
+  const audienceLower = targetAudience.toLowerCase();
+  const featureLower = selectedFeature.toLowerCase();
+  
+  // Create feature-aware scene variations
+  let sceneOptions: string[] = [];
+  
+  // Electronics/Tech Products
+  if (categoryLower.includes('electronics') || categoryLower.includes('tech')) {
+    if (featureLower.includes('wireless') || featureLower.includes('bluetooth')) {
+      sceneOptions = ['workout session with wireless freedom', 'commute with hands-free convenience', 'home office without cable clutter', 'outdoor adventure staying connected'];
+    } else if (featureLower.includes('waterproof') || featureLower.includes('water resistant')) {
+      sceneOptions = ['rainy day outdoor activity', 'poolside relaxation', 'kitchen cooking scenario', 'bathroom morning routine'];
+    } else if (featureLower.includes('battery') || featureLower.includes('long lasting')) {
+      sceneOptions = ['all-day work session', 'long road trip', 'camping weekend', 'busy day running errands'];
+    } else {
+      sceneOptions = ['modern workspace setup', 'evening entertainment at home', 'creative project time', 'weekend tech exploration'];
+    }
+  }
+  // Health/Fitness/Sports
+  else if (categoryLower.includes('health') || categoryLower.includes('fitness') || categoryLower.includes('sports')) {
+    if (featureLower.includes('lightweight') || featureLower.includes('portable')) {
+      sceneOptions = ['travel workout in hotel room', 'outdoor park exercise', 'quick home workout', 'gym bag convenience'];
+    } else if (featureLower.includes('durable') || featureLower.includes('strong')) {
+      sceneOptions = ['intense workout session', 'outdoor rugged terrain', 'everyday wear and tear', 'challenging sports activity'];
+    } else {
+      sceneOptions = ['morning fitness routine', 'post-workout recovery', 'sports performance moment', 'healthy lifestyle scene'];
+    }
+  }
+  // Beauty/Skincare
+  else if (categoryLower.includes('beauty') || categoryLower.includes('skincare')) {
+    if (featureLower.includes('anti-aging') || featureLower.includes('wrinkle')) {
+      sceneOptions = ['morning bathroom mirror routine', 'evening skincare ritual', 'getting ready for important event', 'self-care spa moment'];
+    } else if (featureLower.includes('moisturizing') || featureLower.includes('hydrating')) {
+      sceneOptions = ['post-shower skincare routine', 'winter weather protection', 'after sun care moment', 'daily moisture ritual'];
+    } else {
+      sceneOptions = ['confident mirror moment', 'makeup application prep', 'self-care evening routine', 'morning glow-up session'];
+    }
+  }
+  // Home/Kitchen
+  else if (categoryLower.includes('home') || categoryLower.includes('kitchen')) {
+    if (featureLower.includes('space saving') || featureLower.includes('compact')) {
+      sceneOptions = ['small apartment kitchen', 'organized storage reveal', 'efficient meal prep', 'tidy home solution'];
+    } else if (featureLower.includes('easy clean') || featureLower.includes('dishwasher safe')) {
+      sceneOptions = ['post-dinner cleanup', 'busy parent quick cleaning', 'effortless maintenance moment', 'spotless kitchen pride'];
+    } else {
+      sceneOptions = ['family meal preparation', 'entertaining guests scene', 'cozy home cooking moment', 'kitchen efficiency showcase'];
+    }
+  }
+  // Fashion/Clothing
+  else if (categoryLower.includes('fashion') || categoryLower.includes('clothing') || categoryLower.includes('apparel')) {
+    if (featureLower.includes('comfortable') || featureLower.includes('soft')) {
+      sceneOptions = ['all-day wear comfort', 'relaxed weekend vibe', 'long travel day', 'work-from-home style'];
+    } else if (featureLower.includes('versatile') || featureLower.includes('multi-purpose')) {
+      sceneOptions = ['day-to-night transition', 'casual to formal switch', 'travel wardrobe essential', 'multiple styling options'];
+    } else {
+      sceneOptions = ['confident style moment', 'special occasion wear', 'everyday fashion choice', 'personal style expression'];
+    }
+  }
+  // Generic fallback
+  else {
+    sceneOptions = ['authentic daily use moment', 'problem-solving scenario', 'lifestyle improvement scene', 'satisfaction demonstration moment'];
+  }
+  
+  // Select scene based on cycle value for variety
+  const sceneIndex = cycleValue % sceneOptions.length;
+  return sceneOptions[sceneIndex];
+}
+
+// Generate model variation for demographic diversity
+function generateModelVariation(targetAudience: string, cycleValue: number): string {
+  const audienceLower = targetAudience.toLowerCase();
+  
+  // Base demographic options that cycle through
+  const demographicVariations = [
+    'diverse young adult',
+    'middle-aged professional',
+    'energetic millennial',
+    'confident Gen Z',
+    'experienced mature adult',
+    'active lifestyle enthusiast',
+    'busy working parent',
+    'health-conscious individual'
+  ];
+  
+  // Hair and appearance variations that cycle
+  const appearanceVariations = [
+    'with curly dark hair',
+    'with straight blonde hair',
+    'with natural black hair',
+    'with wavy brown hair',
+    'with short stylish hair',
+    'with long flowing hair',
+    'with trendy colored hair',
+    'with classic styled hair'
+  ];
+  
+  // Skin tone variations that cycle
+  const skinToneVariations = [
+    'with warm medium skin tone',
+    'with fair complexion',
+    'with rich dark skin tone',
+    'with olive skin tone',
+    'with light tan complexion',
+    'with deep brown skin tone',
+    'with golden skin tone',
+    'with neutral complexion'
+  ];
+  
+  // Select variations based on cycle value for diversity
+  const demoIndex = cycleValue % demographicVariations.length;
+  const hairIndex = (cycleValue + 1) % appearanceVariations.length;
+  const skinIndex = (cycleValue + 2) % skinToneVariations.length;
+  
+  return `${demographicVariations[demoIndex]} ${skinToneVariations[skinIndex]} ${appearanceVariations[hairIndex]}`;
+}
+
 // Import the proven prompt building function from aiHackathon
 function buildHackathonPrompt(
   agentType: string,
@@ -50,7 +183,9 @@ function buildHackathonPrompt(
       };
     };
     brandVoice: string;
-  }
+  },
+  usingHeroImageBase?: boolean,
+  agentInstance?: number
 ): string {
   let prompt = "";
 
@@ -91,109 +226,174 @@ function buildHackathonPrompt(
     }
     
     if (agentType === 'infographic') {
-      prompt += `\n🎯 PRODUCT INFORMATION FOR INFOGRAPHIC GENERATION:\n`;
+      // Extract essential data only
+      const keyFeatures = productData.keyFeatures || (productData.features && productData.features.length > 0 ? productData.features.join(', ') : 'key features');
+      const targetAudience = productData.targetAudience === "Custom" && productData.customTargetAudience 
+        ? productData.customTargetAudience 
+        : productData.targetAudience || profileData?.targetAudience || "customers";
+      const productCategory = productData.productCategory || profileData?.productCategory || "products";
+      const brandVoice = brandKitData?.brandVoice || 'professional';
+      const currentAgentInstance = agentInstance || 1;
       
-      // Product Name from ProductNode (required input)
-      let productName = '';
-      if (productData.productName) {
-        productName = productData.productName;
-        prompt += `Product Name: ${productData.productName}\n`;
-      } else if (productData.title) {
-        productName = productData.title;
-        prompt += `Product Name: ${productData.title}\n`;
+      // For Agent 2+, parse features and select one using timestamp-based cycling
+      let selectedFeature = '';
+      if (currentAgentInstance >= 2) {
+        const individualFeatures = parseIndividualFeatures(keyFeatures);
+        // Use timestamp-based cycling instead of static agentInstance for regeneration variety
+        const cycleIndex = Math.floor(Date.now() / 1000) % individualFeatures.length;
+        selectedFeature = individualFeatures[cycleIndex];
+        console.log(`[Infographic] Timestamp-based feature cycling: ${individualFeatures.length} features, cycle index ${cycleIndex}, selected "${selectedFeature}"`);
       }
       
-      // Key Features from ProductNode (required input)
-      let keyFeatures = '';
-      if (productData.keyFeatures) {
-        keyFeatures = productData.keyFeatures;
-        prompt += `Key Features: ${productData.keyFeatures}\n`;
-      } else if (productData.features && productData.features.length > 0) {
-        keyFeatures = productData.features.join(', ');
-        prompt += `Key Features: ${productData.features.join(', ')}\n`;
-      }
+      // DEBUG: Log resolved values for infographic
+      console.log(`[Infographic] Agent ${currentAgentInstance} - Resolved prompt values:`, {
+        keyFeatures,
+        targetAudience,
+        productCategory,
+        brandVoice,
+        agentInstance: currentAgentInstance,
+        selectedFeature: selectedFeature || 'N/A (Agent 1)'
+      });
       
-      // Target Audience from ProductNode
-      let targetAudience = '';
-      if (productData.targetAudience === "Custom" && productData.customTargetAudience) {
-        targetAudience = productData.customTargetAudience;
-        prompt += `Target Audience: ${productData.customTargetAudience}\n`;
-      } else if (productData.targetAudience) {
-        targetAudience = productData.targetAudience;
-        prompt += `Target Audience: ${productData.targetAudience}\n`;
-      } else if (profileData?.targetAudience) {
-        targetAudience = profileData.targetAudience;
-        prompt += `Target Audience: ${profileData.targetAudience}\n`;
-      }
+      prompt += `\n🎯 INFOGRAPHIC EDIT INSTRUCTIONS:\n\n`;
       
-      // Product Category from ProductNode (PRIORITY) or Profile (fallback)
-      let productCategory = '';
-      if (productData.productCategory) {
-        productCategory = productData.productCategory;
-        prompt += `Product Category: ${productData.productCategory}\n`;
-      } else if (profileData?.productCategory) {
-        productCategory = profileData.productCategory;
-        prompt += `Product Category: ${profileData.productCategory}\n`;
-      }
+      // TECHNICAL REQUIREMENTS - BULLETPROOF
+      prompt += `TECHNICAL REQUIREMENTS:\n`;
+      prompt += `• Square (1:1) — 1024x1024 pixels\n`;
+      prompt += `• Preserve original product colors exactly as shown in source image\n`;
+      prompt += `• No brand names or company names visible anywhere in the image\n\n`;
       
-      // Product specifications if available
-      if (productData.specifications) {
-        prompt += `Product Specifications:\n`;
-        if (productData.specifications.dimensions) {
-          prompt += `- Dimensions: ${productData.specifications.dimensions}\n`;
+      // AGENT 1: BENEFIT BREAKDOWN (Existing behavior)
+      if (currentAgentInstance === 1) {
+        console.log(`[Infographic] Using Agent 1: Benefit Breakdown`);
+        
+        // EDIT MISSION - Different based on image type
+        if (usingHeroImageBase) {
+          prompt += `BASE IMAGE TYPE:\n`;
+          prompt += `You are working with a professional Amazon hero image (clean white background, studio lighting, product-focused).\n\n`;
+          
+          prompt += `EDIT MISSION:\n`;
+          prompt += `Add compelling infographic text overlays to this existing hero image to create a conversion-focused benefit breakdown that makes ${targetAudience} want to buy immediately.\n\n`;
+        } else {
+          prompt += `EDIT MISSION:\n`;
+          prompt += `Transform this product image into a conversion-focused infographic that makes ${targetAudience} want to buy immediately.\n\n`;
         }
-        if (productData.specifications.materials?.length) {
-          prompt += `- Materials: ${productData.specifications.materials.join(', ')}\n`;
+        
+        // WHAT TO ADD TO THE IMAGE
+        if (usingHeroImageBase) {
+          prompt += `ADD TEXT OVERLAYS TO HERO IMAGE:\n`;
+          prompt += `• Compelling headline that speaks directly to ${targetAudience}\n`;
+          prompt += `• 2-3 key benefits derived from: ${keyFeatures}\n`;
+          prompt += `• Clean typography that complements the existing professional layout\n`;
+          prompt += `• Relevant icons that match the specific benefits\n`;
+          prompt += `• Text placement that doesn't obscure the main product\n\n`;
+        } else {
+          prompt += `ADD TO THE IMAGE:\n`;
+          prompt += `• Compelling headline that speaks directly to ${targetAudience}\n`;
+          prompt += `• 2-3 key benefits derived from: ${keyFeatures}\n`;
+          prompt += `• Lifestyle scene showing ${targetAudience} naturally using this product\n`;
+          prompt += `• Clean typography and professional layout\n`;
+          prompt += `• Relevant icons that match the specific benefits\n\n`;
         }
-        if (productData.specifications.color) {
-          prompt += `- Color: ${productData.specifications.color}\n`;
-        }
-        if (productData.specifications.size) {
-          prompt += `- Size: ${productData.specifications.size}\n`;
+      }
+      // AGENT 2+: FUNCTION IN ACTION (New behavior)
+      else {
+        console.log(`[Infographic] Using Agent ${currentAgentInstance}: Function in Action`);
+        console.log(`[Infographic] Selected feature for this instance: "${selectedFeature}"`);
+        
+        prompt += `AGENT TYPE: Function in Action\n`;
+        prompt += `FEATURE FOCUS: ${selectedFeature}\n\n`;
+        
+        prompt += `EDIT MISSION:\n`;
+        prompt += `Transform this product image into a lifestyle scene showing the product in authentic use, with a dynamic zoom-in callout highlighting ONE specific feature: "${selectedFeature}". Make ${targetAudience} visualize themselves using this exact feature.\n\n`;
+        
+        // Generate context-aware lifestyle scene and model variation using timestamp-based cycling
+        const generationCycle = Math.floor(Date.now() / 1000); // Changes every second for variety
+        const lifestyleScene = generateContextAwareScene(productCategory, targetAudience, selectedFeature, generationCycle);
+        const modelVariation = generateModelVariation(targetAudience, generationCycle);
+        
+        console.log(`[Infographic] Context-aware scene: "${lifestyleScene}"`);
+        console.log(`[Infographic] Model variation: "${modelVariation}"`);
+        
+        prompt += `LIFESTYLE SCENE TO CREATE:\n`;
+        prompt += `• ${modelVariation} person naturally using the product in ${lifestyleScene}\n`;
+        prompt += `• Authentic ${productCategory} usage scenario that showcases "${selectedFeature}" naturally\n`;
+        prompt += `• Scene should make sense for demonstrating the "${selectedFeature}" benefit\n`;
+        prompt += `• Person should look engaged and satisfied with this specific benefit\n\n`;
+        
+        prompt += `HEADLINE + CALLOUT DESIGN:\n`;
+        prompt += `• Compelling headline that speaks directly to ${targetAudience}\n`;
+        prompt += `• Zoom-in circle or callout box highlighting the "${selectedFeature}" area of the product\n`;
+        prompt += `• Short, conversion-focused caption explaining this feature's benefit (max 25 words)\n`;
+        prompt += `• Clean pointer/arrow connecting the feature to the callout\n`;
+        prompt += `• High-contrast text that's easily readable on mobile\n\n`;
+        
+        prompt += `CAPTION STYLE:\n`;
+        prompt += `• Focus on the immediate benefit of "${selectedFeature}" to the user's life\n`;
+        prompt += `• Use ${brandVoice} tone but keep it conversational and specific to this feature\n`;
+        prompt += `• Answer: "Why does this specific feature matter to me?"\n`;
+        prompt += `• Example format: "${selectedFeature}: [benefit in 5-8 words]"\n\n`;
+      }
+      
+      // STYLE REQUIREMENTS (shared by both agents)
+      prompt += `STYLE:\n`;
+      prompt += `• ${brandVoice} tone throughout all text\n`;
+      prompt += `• Clean, audience-native design that feels natural to ${targetAudience} and ${productCategory}\n`;
+      prompt += `• High contrast for readability\n`;
+      prompt += `• Product must keep original colors - infographic should enhance, not overpower\n`;
+      
+      // Add SUBTLE brand colors - just accents, not dominant
+      if (brandKitData?.colorPalette) {
+        console.log(`[Infographic] Adding subtle brand color accents`);
+        
+        if (brandKitData.colorPalette.type === "preset") {
+          const subtleColorMappings = {
+            "Professional Blue": "subtle blue accents (#2563eb) for text highlights and small icons only",
+            "Warm Earth": "subtle earth tone accents (#92400e) for text highlights and small icons only", 
+            "Bold Modern": "subtle modern accents (#1f2937) for text highlights and small icons only"
+          };
+          const colorScheme = subtleColorMappings[brandKitData.colorPalette.preset as keyof typeof subtleColorMappings];
+          if (colorScheme) {
+            prompt += `• Brand color accents: ${colorScheme}. Background should remain neutral and product-focused.\n`;
+          }
+        } else if (brandKitData.colorPalette.custom) {
+          const { primary, secondary, accent } = brandKitData.colorPalette.custom;
+          prompt += `• Brand color accents: Use ${primary} sparingly for text highlights and small icons only. Background should remain neutral and product-focused.\n`;
         }
       }
       
-      prompt += `\n🚀 GENERATE AMAZON INFOGRAPHIC DESIGN:\n\n`;
+      prompt += `\n`;
       
-      prompt += `/* SYSTEM */\n`;
-      prompt += `You are a senior infographic designer who creates Amazon PRODUCT infographics that boost conversion rates and provide clear value propositions. Design clean, professional infographics that highlight key features, benefits, and specifications in an easy-to-read format.\n\n`;
-      
-      prompt += `/* USER */\n`;
-      prompt += `Create one high-quality product infographic using the details below.\n\n`;
-      
-      prompt += `Product (reference image): {{source_image}}      ←–– exact user uploaded product image for reference\n`;
-      prompt += `Product name: **${productName}**\n`;
-      prompt += `Key features: ${keyFeatures}\n`;
-      prompt += `Target audience: ${targetAudience}                ←–– ex: "busy professionals"\n`;
-      prompt += `Product category: ${productCategory}              ←–– ex: "Home & Kitchen"\n\n`;
-      
-      prompt += `**Design guidelines**\n`;
-      prompt += `• Create a clean, modern infographic layout with clear sections\n`;
-      prompt += `• Feature the product prominently with feature callouts and benefits\n`;
-      prompt += `• Use professional color scheme (blues, grays, whites work well for Amazon)\n`;
-      prompt += `• Include icons, arrows, and visual elements to guide the eye\n`;
-      prompt += `• Organize information in digestible chunks (features, benefits, specs)\n`;
-      prompt += `• Ensure text is large enough to read on mobile devices\n\n`;
-      
-      prompt += `**Content structure**\n`;
-      prompt += `• Product image/photo as the central element\n`;
-      prompt += `• Key features with corresponding icons or visual callouts\n`;
-      prompt += `• Benefits that solve customer pain points\n`;
-      prompt += `• Technical specifications if relevant\n`;
-      prompt += `• Comparison points or competitive advantages\n`;
-      prompt += `• Clear hierarchy with the most important info prominently placed\n\n`;
-      
-      prompt += `**Hard requirements**\n`;
-      prompt += `1. Clean, professional design suitable for Amazon product listings\n`;
-      prompt += `2. High contrast text that's easily readable\n`;
-      prompt += `3. Product should be clearly visible and well-integrated\n`;
-      prompt += `4. No competitor brands, logos, or trademarked content\n`;
-      prompt += `5. Resolution ≥ 1600 × 1600 px, square format for Amazon compatibility\n`;
-      prompt += `6. Modern, clean aesthetic that builds trust and credibility\n`;
-      prompt += `7. Information organized logically from most to least important\n`;
-      prompt += `8. Visual elements (icons, arrows, boxes) enhance rather than clutter\n\n`;
-      
-      prompt += `The final infographic should help shoppers quickly understand the product's value proposition and key differentiators.\n\n`;
+      // MODEL INTEGRATION (different for each agent)
+      if (currentAgentInstance === 1) {
+        if (usingHeroImageBase) {
+          prompt += `LAYOUT REQUIREMENTS:\n`;
+          prompt += `• Work with the existing professional product presentation\n`;
+          prompt += `• Add text and icons that enhance rather than compete with the product\n`;
+          prompt += `• Maintain the clean, Amazon-compliant aesthetic\n`;
+          prompt += `• Focus on benefit callouts and compelling copy\n\n`;
+        } else {
+          prompt += `MODEL REQUIREMENTS:\n`;
+          prompt += `• Show person naturally wearing/using the actual product from the image\n`;
+          prompt += `• Person should look like they belong in ${targetAudience} demographic\n`;
+          prompt += `• Natural integration - not pasted on top\n`;
+          prompt += `• Authentic ${productCategory} usage scenario\n\n`;
+        }
+        
+        if (usingHeroImageBase) {
+          prompt += `FINAL RESULT: Hero image enhanced with compelling benefit callouts that stop scrolling and drive conversions.\n\n`;
+        } else {
+          prompt += `FINAL RESULT: Professional infographic that stops scrolling and drives conversions.\n\n`;
+        }
+      } else {
+        prompt += `LIFESTYLE INTEGRATION REQUIREMENTS:\n`;
+        prompt += `• Person should naturally demonstrate the "${selectedFeature}" through their usage\n`;
+        prompt += `• Authentic body language showing satisfaction with this specific benefit\n`;
+        prompt += `• Scene should make ${targetAudience} think "I need that feature in my life"\n`;
+        prompt += `• Natural lighting and setting appropriate for the product category\n\n`;
+        
+        prompt += `FINAL RESULT: Lifestyle scene with focused feature callout that answers one specific buyer question and drives immediate conversions.\n\n`;
+      }
       
       return prompt;
     }
@@ -232,9 +432,288 @@ function buildHackathonPrompt(
   return prompt;
 }
 
+// Enhanced conflict resolution function for infographic chat - handles ANY user instruction
+function resolveInfographicConflicts(basePrompt: string, userInstructions: string): string {
+  if (!userInstructions.trim()) return basePrompt;
+  
+  let resolvedPrompt = basePrompt;
+  const userLower = userInstructions.toLowerCase();
+  console.log(`[Infographic] Processing user instruction: "${userInstructions}"`);
+  
+  // Track replacements made
+  const replacements = [];
+  
+  // 1. PERSON/MODEL CHANGES - Like "woman in her 20s", "professional man", "teenager"
+  const personKeywords = ['person', 'model', 'woman', 'man', 'mom', 'dad', 'teen', 'teenager', 'professional', 'athlete', 'student', 'young', 'old', 'elderly', 'senior'];
+  const personMatch = personKeywords.find(keyword => userLower.includes(keyword));
+  if (personMatch) {
+    let newAudience = '';
+    
+    // Extract age/demographic info
+    if (userLower.includes('20s') || userLower.includes('twenties')) {
+      newAudience = userLower.includes('woman') ? 'young women in their 20s' : 'young adults in their 20s';
+    } else if (userLower.includes('30s') || userLower.includes('thirties')) {
+      newAudience = userLower.includes('woman') ? 'women in their 30s' : 'adults in their 30s';
+    } else if (userLower.includes('teen') || userLower.includes('teenager')) {
+      newAudience = 'teenagers (16-19)';
+    } else if (userLower.includes('professional')) {
+      newAudience = 'professional adults (25-45)';
+    } else if (userLower.includes('senior') || userLower.includes('elderly')) {
+      newAudience = 'senior adults (60+)';
+    } else if (userLower.includes('mom') || userLower.includes('mother')) {
+      newAudience = 'moms (30s-40s)';
+    } else {
+      // Use the exact description from user
+      newAudience = userInstructions.match(/(?:woman|man|person|model)\s+[^,\n.]*/i)?.[0] || personMatch;
+    }
+    
+    // Replace target audience in multiple places (fixed regex patterns to be more precise)
+    resolvedPrompt = resolvedPrompt.replace(
+      /makes ([^}]+?) want to buy immediately/g,
+      `makes ${newAudience} want to buy immediately`
+    );
+    resolvedPrompt = resolvedPrompt.replace(
+      /speaks directly to ([^}\n]+?)(\n|$)/g,
+      `speaks directly to ${newAudience}$2`
+    );
+    resolvedPrompt = resolvedPrompt.replace(
+      /showing ([^}]+?) naturally using this product/g,
+      `showing ${newAudience} naturally using this product`
+    );
+    resolvedPrompt = resolvedPrompt.replace(
+      /Person should look like they belong in ([^}]+?) demographic/g,
+      `Person should look like they belong in ${newAudience} demographic`
+    );
+    
+    replacements.push(`person/model → ${newAudience}`);
+  }
+  
+  // 2. COLOR CHANGES - Like "make it more colorful", "use blue colors", "darker theme"
+  const colorKeywords = ['color', 'blue', 'red', 'green', 'orange', 'purple', 'yellow', 'pink', 'bright', 'dark', 'colorful', 'vibrant'];
+  const colorMatch = colorKeywords.find(keyword => userLower.includes(keyword));
+  if (colorMatch) {
+    let colorInstruction = '';
+    
+    if (userLower.includes('bright') || userLower.includes('colorful') || userLower.includes('vibrant')) {
+      colorInstruction = 'vibrant, eye-catching colors with high energy';
+    } else if (userLower.includes('dark') || userLower.includes('darker')) {
+      colorInstruction = 'darker color scheme with deep, professional tones';
+    } else if (userLower.includes('blue')) {
+      colorInstruction = 'blue-focused color scheme with professional blues and whites';
+    } else if (userLower.includes('warm')) {
+      colorInstruction = 'warm color palette with oranges, reds, and earth tones';
+    } else {
+      // Extract color instruction from user message
+      colorInstruction = userInstructions.match(/[^.]*color[^.]*/i)?.[0] || `${colorMatch} color scheme`;
+    }
+    
+    // Replace background color instructions (fixed regex to be more precise)
+    resolvedPrompt = resolvedPrompt.replace(
+      /• Background colors can use brand palette, but product must keep original colors([^\n]*)/g,
+      `• Background colors: ${colorInstruction}, but product must keep original colors$1`
+    );
+    
+    replacements.push(`colors → ${colorInstruction}`);
+  }
+  
+  // 3. SCENE/SETTING CHANGES - Like "office setting", "outdoor scene", "at home"
+  const sceneKeywords = ['scene', 'setting', 'environment', 'background', 'office', 'home', 'outdoor', 'gym', 'kitchen', 'park', 'beach'];
+  const sceneMatch = sceneKeywords.find(keyword => userLower.includes(keyword));
+  if (sceneMatch) {
+    let sceneInstruction = '';
+    
+    if (userLower.includes('office')) {
+      sceneInstruction = 'professional office environment with clean, modern workspace';
+    } else if (userLower.includes('home') || userLower.includes('house')) {
+      sceneInstruction = 'comfortable home environment with personal touches';
+    } else if (userLower.includes('outdoor') || userLower.includes('outside')) {
+      sceneInstruction = 'outdoor setting with natural lighting and environment';
+    } else if (userLower.includes('gym') || userLower.includes('fitness')) {
+      sceneInstruction = 'fitness/gym environment with exercise equipment';
+    } else {
+      // Use exact scene description from user
+      sceneInstruction = userInstructions.match(/[^.]*(?:scene|setting|environment)[^.]*/i)?.[0] || `${sceneMatch} setting`;
+    }
+    
+    // Replace lifestyle scene instruction (fixed regex to be more precise)
+    resolvedPrompt = resolvedPrompt.replace(
+      /• Lifestyle scene showing ([^}]+?) naturally using this product/g,
+      `• Lifestyle scene: ${sceneInstruction} showing person naturally using this product`
+    );
+    
+    replacements.push(`scene → ${sceneInstruction}`);
+  }
+  
+  // 4. CONTENT/CALLOUT CHANGES - Like "add size info", "highlight benefits", "show features"
+  const contentKeywords = ['callout', 'text', 'headline', 'benefit', 'feature', 'size', 'dimension', 'highlight', 'emphasize', 'focus'];
+  const contentMatch = contentKeywords.find(keyword => userLower.includes(keyword));
+  if (contentMatch) {
+    let contentInstruction = '';
+    
+    if (userLower.includes('benefit')) {
+      contentInstruction = 'key benefits and value propositions';
+    } else if (userLower.includes('size') || userLower.includes('dimension')) {
+      contentInstruction = 'size information and dimensional details';
+    } else if (userLower.includes('feature')) {
+      contentInstruction = 'product features and functionality';
+    } else if (userLower.includes('headline')) {
+      contentInstruction = 'compelling headline and primary messaging';
+    } else {
+      // Extract content focus from user message
+      contentInstruction = userInstructions.match(/[^.]*(?:callout|text|highlight)[^.]*/i)?.[0] || `${contentMatch} content`;
+    }
+    
+    // Replace content focus
+    resolvedPrompt = resolvedPrompt.replace(
+      /• 2-3 key benefits derived from: [^}]+/g,
+      `• Focus on ${contentInstruction} derived from product features`
+    );
+    
+    replacements.push(`content focus → ${contentInstruction}`);
+  }
+  
+  // 5. STYLE CHANGES - Like "more modern", "minimalist", "bold design"
+  const styleKeywords = ['style', 'design', 'modern', 'minimalist', 'bold', 'clean', 'elegant', 'professional', 'casual'];
+  const styleMatch = styleKeywords.find(keyword => userLower.includes(keyword));
+  if (styleMatch) {
+    let styleInstruction = '';
+    
+    if (userLower.includes('modern')) {
+      styleInstruction = 'modern, contemporary design with clean lines';
+    } else if (userLower.includes('minimalist')) {
+      styleInstruction = 'minimalist design with lots of white space and simple elements';
+    } else if (userLower.includes('bold')) {
+      styleInstruction = 'bold, high-impact design with strong visual elements';
+    } else if (userLower.includes('elegant')) {
+      styleInstruction = 'elegant, sophisticated design with refined aesthetics';
+    } else {
+      styleInstruction = userInstructions.match(/[^.]*(?:style|design)[^.]*/i)?.[0] || `${styleMatch} design approach`;
+    }
+    
+    // Replace design aesthetic
+    resolvedPrompt = resolvedPrompt.replace(
+      /• Magazine-quality design aesthetic/g,
+      `• ${styleInstruction} with high-quality aesthetic`
+    );
+    
+    replacements.push(`style → ${styleInstruction}`);
+  }
+  
+  // Log what replacements were made
+  if (replacements.length > 0) {
+    console.log(`[Infographic] Applied smart replacements:`, replacements);
+  } else {
+    console.log(`[Infographic] No specific patterns detected, will use as general context`);
+  }
+  
+  return resolvedPrompt;
+}
+
+// Add simplified hook-focused prompt variation function
+function applyInfographicPromptVariations(basePrompt: string, agentInstance: number, productData: any, profileData: any, brandKitData?: any, selectedFeature?: string): string {
+  console.log(`[Infographic] Applying hook-focused prompt variations for agent instance ${agentInstance}`);
+  
+  // Extract product context for intelligent variations
+  const targetAudience = productData.targetAudience === "Custom" && productData.customTargetAudience 
+    ? productData.customTargetAudience 
+    : productData.targetAudience || profileData?.targetAudience || "general customers";
+  
+  const productCategory = productData.productCategory || profileData?.productCategory || "General Products";
+  const keyFeatures = productData.keyFeatures || (productData.features && productData.features.length > 0 ? productData.features.join(', ') : 'key features');
+  
+  console.log(`[Infographic] Product context: Category=${productCategory}, Audience=${targetAudience}, Features=${keyFeatures}`);
+  
+  // Simplified hook types focused ONLY on headline generation
+  type HookVariationConfig = {
+    type: string;
+    hookStyle: string;
+    characterLimit: number;
+  };
+  
+  // Detect specific product categories for targeted hook styles
+  const categoryLower = productCategory.toLowerCase();
+  const audienceLower = targetAudience.toLowerCase();
+  
+  let variations: { [key: number]: HookVariationConfig } = {};
+  
+  // Category-specific hook variations - SIMPLE AND FOCUSED
+  if (categoryLower.includes('electronics') || categoryLower.includes('tech')) {
+    variations = {
+      1: { type: "Performance Hook", hookStyle: "performance benefit that saves time or improves results", characterLimit: 40 },
+      2: { type: "Compatibility Hook", hookStyle: "compatibility or ease-of-use advantage", characterLimit: 35 },
+      3: { type: "Innovation Hook", hookStyle: "cutting-edge feature that sets it apart", characterLimit: 40 },
+      4: { type: "Value Hook", hookStyle: "value proposition vs expensive alternatives", characterLimit: 35 }
+    };
+  }
+  else if (categoryLower.includes('home') || categoryLower.includes('kitchen')) {
+    variations = {
+      1: { type: "Convenience Hook", hookStyle: "time-saving or convenience benefit for busy lives", characterLimit: 40 },
+      2: { type: "Quality Hook", hookStyle: "quality or durability advantage", characterLimit: 35 },
+      3: { type: "Versatility Hook", hookStyle: "multiple uses or versatility", characterLimit: 40 },
+      4: { type: "Space Hook", hookStyle: "space-saving or organization benefit", characterLimit: 35 }
+    };
+  }
+  else if (categoryLower.includes('health') || categoryLower.includes('fitness') || categoryLower.includes('sports')) {
+    variations = {
+      1: { type: "Performance Hook", hookStyle: "performance improvement or fitness goal", characterLimit: 40 },
+      2: { type: "Motivation Hook", hookStyle: "motivational or confidence-building message", characterLimit: 35 },
+      3: { type: "Results Hook", hookStyle: "visible results or transformation", characterLimit: 40 },
+      4: { type: "Ease Hook", hookStyle: "ease of use or accessibility for all levels", characterLimit: 35 }
+    };
+  }
+  else if (categoryLower.includes('beauty') || categoryLower.includes('skincare')) {
+    variations = {
+      1: { type: "Transformation Hook", hookStyle: "beauty transformation or skin improvement", characterLimit: 40 },
+      2: { type: "Confidence Hook", hookStyle: "confidence-boosting or self-care message", characterLimit: 35 },
+      3: { type: "Natural Hook", hookStyle: "natural ingredients or gentle care", characterLimit: 40 },
+      4: { type: "Results Hook", hookStyle: "visible results or anti-aging benefit", characterLimit: 35 }
+    };
+  }
+  // Generic fallback - simple and effective
+  else {
+    variations = {
+      1: { type: "Benefit Hook", hookStyle: "primary benefit that transforms daily life", characterLimit: 40 },
+      2: { type: "Problem-Solution Hook", hookStyle: "solution to a common frustration", characterLimit: 35 },
+      3: { type: "Quality Hook", hookStyle: "superior quality or craftsmanship", characterLimit: 40 },
+      4: { type: "Value Hook", hookStyle: "exceptional value or smart choice", characterLimit: 35 }
+    };
+  }
+  
+  // Apply the variation based on agent instance
+  const variation = variations[agentInstance as keyof typeof variations] || variations[1];
+  
+  let modifiedPrompt = basePrompt;
+  
+  // CRITICAL FIX: Replace the lazy headline instruction with focused hook generation
+  console.log(`[Infographic] Generating ${variation.type} for ${targetAudience} (max ${variation.characterLimit} chars)`);
+  
+  // Feature-specific hook generation for Agent 2+
+  if (agentInstance >= 2 && selectedFeature) {
+    console.log(`[Infographic] Generating feature-specific hook for "${selectedFeature}"`);
+    // Replace the headline instruction with feature-focused hook generation
+    modifiedPrompt = modifiedPrompt.replace(
+      /• Compelling headline that speaks directly to [^}\n]+/g,
+      `• Create a ${variation.type} (${variation.characterLimit} characters max): Write a ${variation.hookStyle} specifically about "${selectedFeature}" for ${targetAudience}. Focus on WHY this specific feature matters to them. Keep it short, punchy, and native to the ${productCategory} world. NO demographic labels - focus on the feature's aspiration and benefit.`
+    );
+  } else {
+    // Original hook generation for Agent 1
+    modifiedPrompt = modifiedPrompt.replace(
+      /• Compelling headline that speaks directly to [^}\n]+/g,
+      `• Create a ${variation.type} (${variation.characterLimit} characters max): Write a ${variation.hookStyle} specifically for ${targetAudience}. Keep it short, punchy, and native to the ${productCategory} world. NO demographic labels - focus on aspiration and benefit.`
+    );
+  }
+  
+  console.log(`[Infographic] Applied ${variation.type} variation with ${variation.characterLimit} character limit`);
+  
+  return modifiedPrompt;
+}
+
+
+
 export const generateInfographic = action({
   args: {
-    agentType: v.string(),
+    agentType: v.literal("infographic"),
+    agentInstance: v.optional(v.number()),
     productId: v.optional(v.id("products")),
     productImages: v.array(
       v.object({
@@ -281,18 +760,34 @@ export const generateInfographic = action({
         targetAudience: v.optional(v.string()),
       })
     ),
+    brandKitData: v.optional(v.object({
+      brandName: v.string(),
+      colorPalette: v.object({
+        type: v.union(v.literal("preset"), v.literal("custom")),
+        preset: v.optional(v.string()),
+        custom: v.optional(v.object({
+          primary: v.string(),
+          secondary: v.string(),
+          accent: v.string(),
+        })),
+      }),
+      brandVoice: v.string(),
+    })),
     additionalContext: v.optional(v.string()),
+    usingHeroImageBase: v.optional(v.boolean()), // NEW: Indicates if using hero image as base
   },
   handler: async (ctx, args): Promise<{ concept: string; imageUrl: string; prompt?: string; storageId?: string }> => {
     console.log("[Infographic] Starting infographic generation process");
     console.log("[Infographic] Args received:", {
       agentType: args.agentType,
+      agentInstance: args.agentInstance,
       productId: args.productId,
       imageCount: args.productImages.length,
       hasProductName: !!args.productData.productName,
       hasKeyFeatures: !!args.productData.keyFeatures,
       hasFeatures: !!args.productData.features?.length,
       hasProfile: !!args.profileData,
+      hasBrandKit: !!args.brandKitData,
       connectedAgentsCount: args.connectedAgentOutputs.length
     });
     
@@ -352,15 +847,24 @@ export const generateInfographic = action({
         targetKeywords: productData.targetKeywords,
         hasProductTargetAudience: !!productData.targetAudience,
         productTargetAudience: productData.targetAudience,
+        hasCustomTargetAudience: !!productData.customTargetAudience,
+        customTargetAudience: productData.customTargetAudience,
+        hasProductCategory: !!productData.productCategory,
+        productCategory: productData.productCategory,
         // Legacy database features (fallback)
         hasDatabaseFeatures: !!productData.features?.length,
         databaseFeaturesCount: productData.features?.length || 0,
         // Connected agents
         hasConnectedAgents: args.connectedAgentOutputs.length > 0,
-        // Profile data (critical for product category)
+        // Profile data (fallback only)
         hasProfile: !!args.profileData,
         profileProductCategory: args.profileData?.productCategory || null,
         profileTargetAudience: args.profileData?.targetAudience || null,
+        // Brand Kit data (NEW)
+        hasBrandKit: !!args.brandKitData,
+        brandKitName: args.brandKitData?.brandName || null,
+        brandKitVoice: args.brandKitData?.brandVoice || null,
+        brandKitColorType: args.brandKitData?.colorPalette?.type || null,
       });
 
       // Validate we have a product image for reference
@@ -368,19 +872,61 @@ export const generateInfographic = action({
         throw new Error("No product images provided. Please connect to a Product Image Node with uploaded images.");
       }
 
-      // Use the proven buildHackathonPrompt function like other image generators
-      console.log("[Infographic] Building infographic prompt using proven logic");
+      // Use the proven buildHackathonPrompt function with Brand Kit integration
+      console.log("[Infographic] Building infographic prompt using proven logic with Brand Kit integration");
+      console.log("[Infographic] Using hero image base:", !!args.usingHeroImageBase);
       let infographicPrompt = buildHackathonPrompt(
         'infographic',
         productData,
         args.connectedAgentOutputs,
-        args.profileData
+        args.profileData,
+        args.brandKitData,
+        args.usingHeroImageBase,
+        args.agentInstance
       );
 
-      // If user provided specific instructions via chat, incorporate them
+      // RE-ENABLED: Sophisticated Hook Generation System for compelling storytelling
+      console.log("[Infographic] Applying sophisticated prompt variations for compelling hooks and storytelling");
+      
+      // Calculate selected feature for Agent 2+ hook generation using timestamp-based cycling
+      let selectedFeatureForHook = '';
+      const currentAgentInstance = args.agentInstance || 1;
+      if (currentAgentInstance >= 2) {
+        const keyFeatures = productData.keyFeatures || (productData.features && productData.features.length > 0 ? productData.features.join(', ') : 'key features');
+        const individualFeatures = parseIndividualFeatures(keyFeatures);
+        // Use same timestamp-based cycling for consistency
+        const cycleIndex = Math.floor(Date.now() / 1000) % individualFeatures.length;
+        selectedFeatureForHook = individualFeatures[cycleIndex];
+        console.log(`[Infographic] Selected feature for hook generation (timestamp cycle ${cycleIndex}): "${selectedFeatureForHook}"`);
+      }
+      
+      // Apply the sophisticated variation system that creates emotional headlines
+      infographicPrompt = applyInfographicPromptVariations(
+        infographicPrompt,
+        currentAgentInstance,
+        productData,
+        args.profileData,
+        args.brandKitData,
+        selectedFeatureForHook
+      );
+
+
+
+      // Smart user instructions handling with intelligent conflict resolution (like Lifestyle Agent)
       if (args.additionalContext && args.additionalContext.trim()) {
         console.log("[Infographic] Adding user-specific instructions:", args.additionalContext);
-        infographicPrompt += `\n\n🎯 USER REQUEST: The user specifically requested: "${args.additionalContext}"\nPlease incorporate this request while maintaining the professional infographic design and Amazon compliance.`;
+        console.log("[Infographic] Original prompt length before conflict resolution:", infographicPrompt.length);
+        console.log("[Infographic] Resolving prompt conflicts with user instructions...");
+        
+        // Apply smart conflict resolution that replaces specific prompt parts intelligently
+        const originalPrompt = infographicPrompt;
+        infographicPrompt = resolveInfographicConflicts(infographicPrompt, args.additionalContext);
+        
+        console.log("[Infographic] Prompt length after conflict resolution:", infographicPrompt.length);
+        console.log("[Infographic] Prompt modified?", originalPrompt !== infographicPrompt);
+        
+        // Always add user context for clarity, but preserve all the structured content
+        infographicPrompt += `\n\n🎯 USER CONTEXT: User requested "${args.additionalContext}" - this has been intelligently integrated into the prompt above.`;
       }
 
       // DEBUG: Log the exact prompt being sent to AI
@@ -409,6 +955,7 @@ export const generateInfographic = action({
         model: "gpt-image-1",
         image: imageFile,
         prompt: infographicPrompt,
+        // Note: size parameter not supported in images.edit, must rely on prompt instructions
       });
       
       const imageData = imageResponse.data?.[0];
@@ -438,10 +985,14 @@ export const generateInfographic = action({
         throw new Error("Failed to get URL for stored infographic");
       }
       
-      console.log("[Infographic] Infographic generation completed successfully");
+      console.log("[Infographic] Streamlined infographic generation completed successfully");
       
+      const conceptMessage = args.usingHeroImageBase 
+        ? "Professional benefit breakdown created by adding compelling text overlays to your Hero Image Designer 1 - leveraging the existing clean design with conversion-focused callouts"
+        : "Professional Amazon infographic created by transforming your uploaded product image with gpt-image-1 - designed with perfect square format and accurate product colors";
+        
       return {
-        concept: "Professional Amazon infographic created by transforming your uploaded product image with gpt-image-1 - clean layout highlighting key features, benefits, and specifications",
+        concept: conceptMessage,
         imageUrl: finalUrl,
         storageId: storageId
       };

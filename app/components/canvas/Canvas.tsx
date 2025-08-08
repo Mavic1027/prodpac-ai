@@ -174,7 +174,7 @@ function InnerCanvas({
   const generateContent = useAction(api.aiHackathon.generateContentSimple);
   const generateHeroImage = useAction(api.heroImage.generateHeroImage);
   const generateLifestyleImage = useAction(api.lifestyleImage.generateLifestyleImage);
-  // const generateInfographic = useAction(api.infographic.generateInfographic); // TODO: Not implemented yet
+  const generateInfographic = useAction(api.infographic.generateInfographic);
   const refineContent = useAction(api.chat.refineContent);
   const refineHeroImage = useAction(api.heroImageRefine.refineHeroImage);
 
@@ -630,8 +630,21 @@ function InnerCanvas({
         // For infographic agent, extract product images from Product Image Node
         console.log("[Canvas] Starting infographic generation");
         
+        // Calculate agent instance number first
+        const agentInstance = (() => {
+          const nickname = agentNode.data.nickname || "";
+          // Extract instance number from nickname: @INFOGRAPHIC_AGENT_2 -> 2
+          const match = nickname.match(/_(\d+)$/);
+          return match ? parseInt(match[1]) : 1; // Default to 1 if no suffix
+        })();
+        
+        console.log("[Canvas] Infographic agent instance:", agentInstance);
+        
         // Check if we have product images from Product Image Node
         let productImages: { dataUrl: string; timestamp?: number }[] = [];
+        
+        // Use standard product image logic for all infographic agents
+        console.log(`[Canvas] Infographic Agent ${agentInstance} - using standard generation`);
         
         if (thumbnailImages && thumbnailImages.length > 0) {
           // Use uploaded images if available
@@ -662,8 +675,9 @@ function InnerCanvas({
           }];
         } else {
           // No images available
-          toast.error("No product images available. Please upload a product image first.");
-          throw new Error("No product images available for infographic generation.");
+          console.error("[Canvas] No product images available for infographic generation");
+          toast.error("Please upload product images or connect to a Product Image Node first.");
+          return;
         }
         
         console.log("[Canvas] Product images prepared:", productImages.length);
@@ -677,7 +691,7 @@ function InnerCanvas({
                   data: { 
                     ...node.data, 
                     generationProgress: {
-                      stage: "Designing infographic layout...",
+                      stage: agentInstance === 1 ? "Adding text overlays to hero image..." : "Designing infographic layout...",
                       percent: 60
                     }
                   } 
@@ -687,10 +701,64 @@ function InnerCanvas({
         );
 
         // Generate infographic with vision API
-        // TODO: Infographic generation not implemented yet
-        console.log("[Canvas] Infographic generation not implemented yet");
-        toast.error("Infographic generation not implemented yet");
-        return;
+        console.log("[Canvas] Calling generateInfographic action with:", {
+          productId: videoNode.data.productId,
+          imageCount: productImages.length,
+          hasProductData: !!productData,
+          hasFeatures: !!productData.features?.length,
+          connectedAgentsCount: connectedAgentOutputs.length,
+          hasProfile: !!profileData,
+          hasBrandKit: !!brandKitData,
+          agentInstance: agentInstance,
+          usingHeroImageBase: agentInstance === 1
+        });
+        
+        const infographicResult = await generateInfographic({
+          agentType: "infographic",
+          productId: videoNode.data.productId as Id<"products"> | undefined,
+          productImages: productImages,
+          productData,
+          connectedAgentOutputs,
+          profileData,
+          brandKitData,
+          additionalContext,
+          agentInstance: agentInstance, // Pass agent instance for infographic prompt variations
+        });
+        
+        console.log("[Canvas] Infographic generation completed");
+        console.log("[Canvas] Concept received:", infographicResult.concept.substring(0, 100) + "...");
+        console.log("[Canvas] Image URL received:", !!infographicResult.imageUrl);
+        console.log("[Canvas] Full infographic URL:", infographicResult.imageUrl);
+        console.log("[Canvas] Storage ID received:", infographicResult.storageId);
+        
+        result = infographicResult.concept;
+        imageUrl = infographicResult.imageUrl;
+        imageStorageId = infographicResult.storageId;
+        
+        console.log("[Canvas] After assignment - imageUrl:", imageUrl);
+        console.log("[Canvas] After assignment - imageStorageId:", imageStorageId);
+        
+        // Store the prompt for infographic too
+        if (infographicResult.prompt) {
+          setNodes((nds: any) =>
+            nds.map((node: any) =>
+              node.id === nodeId
+                ? { 
+                    ...node, 
+                    data: { 
+                      ...node.data, 
+                      lastPrompt: infographicResult.prompt
+                    } 
+                  }
+                : node
+            )
+          );
+        }
+        
+        // If no image was generated due to safety issues, inform the user
+        if (!imageUrl) {
+          toast.warning("Infographic concept created, but image generation was blocked by safety filters. Try uploading different images or adjusting your requirements.");
+        }
       } else {
         // Update progress based on agent type
         const progressMessages = {
@@ -798,6 +866,7 @@ function InnerCanvas({
                   ...node.data,
                   draft: isImageAgent ? "" : result, // Don't show concept text for image agents
                   imageUrl: imageUrl,
+                  thumbnailUrl: undefined, // Clear old thumbnail when setting new imageUrl
                   status: "ready",
                   generationProgress: undefined, // Clear progress when done
                 },
@@ -972,7 +1041,7 @@ function InnerCanvas({
         });
       }
     }
-  }, [generateContent, generateHeroImage, userProfile, setNodes, updateAgentDraft, projectProducts]);
+  }, [generateContent, generateHeroImage, generateLifestyleImage, generateInfographic, userProfile, setNodes, updateAgentDraft, projectProducts]);
   
   // Handle thumbnail image upload
   const handleThumbnailUpload = useCallback(async (images: File[]) => {
@@ -1408,6 +1477,63 @@ IMPORTANT INSTRUCTIONS:
           }]);
           return;
         }
+      } else if (agentNode.data.type === "infographic") {
+        console.log("[Canvas] Infographic chat - using same handleGenerate function as initial generation");
+        
+        // Create a dynamic response based on user's request for infographics
+        const getUserResponse = (message: string) => {
+          const lowerMsg = message.toLowerCase();
+          if (lowerMsg.includes('woman') || lowerMsg.includes('man') || lowerMsg.includes('person') || lowerMsg.includes('model')) return "Got it! Updating the person in the infographic now...";
+          if (lowerMsg.includes('color') || lowerMsg.includes('bright') || lowerMsg.includes('dark')) return "Got it! Updating the color scheme now...";
+          if (lowerMsg.includes('text') || lowerMsg.includes('headline') || lowerMsg.includes('callout')) return "Got it! Updating the text and callouts now...";
+          if (lowerMsg.includes('scene') || lowerMsg.includes('setting') || lowerMsg.includes('background')) return "Got it! Updating the scene and background now...";
+          if (lowerMsg.includes('style') || lowerMsg.includes('design') || lowerMsg.includes('layout')) return "Got it! Updating the design style now...";
+          if (lowerMsg.includes('benefit') || lowerMsg.includes('feature')) return "Got it! Updating the benefits and features now...";
+          return "Got it! Creating an updated infographic now...";
+        };
+
+        // Add immediate chat response
+        setChatMessages(prev => [...prev, {
+          id: `ai-${Date.now()}`,
+          role: "ai",
+          content: getUserResponse(cleanMessage),
+          timestamp: Date.now(),
+          agentId: agentNode.id,
+        }]);
+
+        try {
+          // Use the exact same handleGenerate function that works perfectly for initial generation
+          // This handles all the data gathering, product connections, and generation logic
+          console.log("[Canvas] About to call handleGenerate for infographic chat");
+          await handleGenerate(agentNode.id, undefined, cleanMessage);
+          console.log("[Canvas] handleGenerate completed for infographic chat");
+          
+          // Add completion message after generation is done
+          setTimeout(() => {
+            setChatMessages(prev => [...prev, {
+              id: `ai-complete-${Date.now()}`,
+              role: "ai",
+              content: "✅ All set! New infographic generated.",
+              timestamp: Date.now(),
+              agentId: agentNode.id,
+            }]);
+          }, 500); // Small delay to ensure node update is visible first
+          
+          return;
+
+        } catch (error: any) {
+          console.error("[Canvas] Infographic generation error:", error);
+          
+          // Add error message to chat
+          setChatMessages(prev => [...prev, {
+            id: `ai-error-${Date.now()}`,
+            role: "ai",
+            content: `❌ Sorry, I encountered an error: ${error?.message || "Failed to process your request"}. Please try again or generate a new image if the issue persists.`,
+            timestamp: Date.now(),
+            agentId: agentNode.id,
+          }]);
+          return;
+        }
       } else {
         // Use regular text refinement for other agent types
         result = await refineContent({
@@ -1440,6 +1566,7 @@ IMPORTANT INSTRUCTIONS:
       }]);
       
       // Update node with new draft and image URL if applicable
+      const isImageAgent = agentNode.data.type === "hero-image" || agentNode.data.type === "lifestyle-image" || agentNode.data.type === "infographic";
       setNodes((nds: any) =>
         nds.map((node: any) =>
           node.id === agentNode.id
@@ -1447,17 +1574,20 @@ IMPORTANT INSTRUCTIONS:
                 ...node,
                 data: {
                   ...node.data,
-                  draft: (agentNode.data.type === "hero-image" || agentNode.data.type === "lifestyle-image") ? "" : (result?.updatedContent || result?.updatedDraft || node.data.draft),
+                  draft: isImageAgent ? "" : (result?.updatedContent || result?.updatedDraft || node.data.draft),
                   status: "ready",
-                  ...(result?.imageUrl && (agentNode.data.type === "hero-image" || agentNode.data.type === "lifestyle-image") ? { imageUrl: result.imageUrl } : { thumbnailUrl: result.imageUrl }),
+                  ...(result?.imageUrl && isImageAgent ? { 
+                    imageUrl: result.imageUrl,
+                    thumbnailUrl: undefined // Clear old thumbnail when setting new imageUrl
+                  } : {}),
                 },
               }
             : node
         )
       );
       
-      // Save to database if it's an image agent (hero-image or lifestyle-image) with a new image
-      if ((agentNode.data.type === "hero-image" || agentNode.data.type === "lifestyle-image") && result?.imageUrl && agentNode.data.agentId) {
+      // Save to database if it's an image agent (hero-image, lifestyle-image, or infographic) with a new image
+      if (isImageAgent && result?.imageUrl && agentNode.data.agentId) {
         await updateAgentDraft({
           id: agentNode.data.agentId as Id<"agents">,
           draft: "", // Don't save concept text for image agents - they only show images
