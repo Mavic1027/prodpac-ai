@@ -36,6 +36,10 @@ export interface AgentNodeData {
     percent: number;
   };
   lastPrompt?: string;
+  // Infographic-only template selection (optional)
+  selectedTemplateId?: string;
+  selectedTemplateLabel?: string;
+  onSelectTemplate?: () => void; // Will open template picker via Canvas-level handler if needed
 }
 
 const agentConfig = {
@@ -144,6 +148,7 @@ export const AgentNode = memo(({ data, selected, id }: ExtendedNodeProps) => {
     }
   }, [showImageCountPopup]);
 
+
   const statusIcons = {
     idle: null,
     generating: <Loader2 className="h-4 w-4 animate-spin" />,
@@ -166,6 +171,20 @@ export const AgentNode = memo(({ data, selected, id }: ExtendedNodeProps) => {
       )}
       
       <Card className={`relative w-72 p-5 border-muted/50 shadow-xl bg-gradient-to-b from-background to-background/90 backdrop-blur-sm transition-all duration-300 hover:shadow-2xl ${selected ? "border-primary/50" : ""}`}>
+        {/* Infographic template pill (above the node) */}
+        {data.type === 'infographic' && (
+          <div className="absolute -top-7 left-1/2 -translate-x-1/2 z-10">
+            <button
+              className={`px-3 py-1 rounded-full text-xs border transition-all duration-200 shadow-sm backdrop-blur-sm
+                ${data.selectedTemplateId ? 'bg-orange-500/20 text-orange-900 dark:text-orange-100 border-orange-500/40 opacity-100' : 'bg-background/30 text-foreground/70 border-border/60 opacity-0 group-hover:opacity-100'}
+              `}
+              onClick={(e) => { e.stopPropagation(); data.onSelectTemplate?.(); }}
+              title={data.selectedTemplateId ? 'Change template' : 'Choose template'}
+            >
+              {data.selectedTemplateLabel || 'Templates'}
+            </button>
+          </div>
+        )}
         <Handle
           type="target"
           position={Position.Left}

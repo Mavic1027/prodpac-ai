@@ -714,6 +714,7 @@ export const generateInfographic = action({
   args: {
     agentType: v.literal("infographic"),
     agentInstance: v.optional(v.number()),
+    agentId: v.optional(v.id("agents")),
     productId: v.optional(v.id("products")),
     productImages: v.array(
       v.object({
@@ -775,6 +776,7 @@ export const generateInfographic = action({
     })),
     additionalContext: v.optional(v.string()),
     usingHeroImageBase: v.optional(v.boolean()), // NEW: Indicates if using hero image as base
+    templateId: v.optional(v.string()),
   },
   handler: async (ctx, args): Promise<{ concept: string; imageUrl: string; prompt?: string; storageId?: string }> => {
     console.log("[Infographic] Starting infographic generation process");
@@ -872,10 +874,223 @@ export const generateInfographic = action({
         throw new Error("No product images provided. Please connect to a Product Image Node with uploaded images.");
       }
 
-      // Use the proven buildHackathonPrompt function with Brand Kit integration
+      // Template registry (full set with lean builders)
+      const templates: Record<string, { label: string; purpose: string; requires: string[]; builder: (ctx: { productData: any; profileData: any; brandKitData: any; leverSeed: number; }) => string } > = {
+        main_benefit: {
+          label: "Main Benefit",
+          purpose: "Instant #1 reason to buy in <1s",
+          requires: [],
+          builder: ({ productData, profileData, brandKitData, leverSeed }) => {
+            const subject = productData.productCategory || productData.title || 'product';
+            const featuresArr = (productData.keyFeatures ? productData.keyFeatures.split(/[\n•;,]+/) : (productData.features || [])).map((s: string) => s.trim()).filter(Boolean);
+            const topFeature = featuresArr[0] || 'a clear primary benefit';
+            const audience = productData.targetAudience === 'Custom' && productData.customTargetAudience ? productData.customTargetAudience : (productData.targetAudience || profileData?.targetAudience || 'customers');
+            const brandVoice = brandKitData?.brandVoice;
+            const angles = ['0°', '15°', '30°'];
+            const backgrounds = ['soft gradient', 'neutral texture', 'clean studio'];
+            const callouts = ['icon + label', 'line + label'];
+            const angle = angles[leverSeed % angles.length];
+            const background = backgrounds[leverSeed % backgrounds.length];
+            const calloutStyle = callouts[leverSeed % callouts.length];
+            const voiceLine = brandVoice ? `; one short headline (3–4 words) in ${brandVoice}` : '';
+            const colorLine = brandKitData?.colorPalette ? `• Background minimal; use brand accents only (never dominant)` : '• Background minimal; keep accents subtle if any';
+            return (
+`System: Act as an Amazon art director. Generate a clean infographic image (not a poster).
+User:
+Create a MAIN BENEFIT image for a ${subject} for ${audience}.
+• Show one unmistakable proof of the top benefit: ${topFeature}
+• Large product, crisp edges, photoreal lighting${voiceLine}
+${colorLine}
+Vary by seed: angle ${angle}, composition (center/off-center), callout style ${calloutStyle}, background ${background}
+Technical Specifications: High-resolution image at 300 DPI for clear detail.
+Dimensions: Optimized for online listings at 2000×2000 pixels.`);
+          }
+        },
+        feature_callouts: {
+          label: "Feature Callouts (3–5)",
+          purpose: "Highlight 3–5 key features",
+          requires: [],
+          builder: ({ productData, profileData, brandKitData, leverSeed }) => {
+            const subject = productData.productCategory || productData.title || 'product';
+            const raw = (productData.keyFeatures ? productData.keyFeatures.split(/[\n•;,]+/) : (productData.features || [])).map((s: string) => s.trim()).filter(Boolean);
+            const features3 = raw.slice(0, 3).join(', ');
+            const audience = productData.targetAudience === 'Custom' && productData.customTargetAudience ? productData.customTargetAudience : (productData.targetAudience || profileData?.targetAudience || 'customers');
+            const brandVoice = brandKitData?.brandVoice;
+            const layout = ['grid', 'radial', 'stacked'][leverSeed % 3];
+            const voiceLine = brandVoice ? `; tone ${brandVoice}` : '';
+            return (
+`System: Design a clean, scannable callout layout for mobile.
+User:
+Create FEATURE CALLOUTS for a ${subject} for ${audience}.
+• 3–5 concise callouts from: ${features3}
+• Large labels, consistent icons; no body text
+• Neutral background; balanced spacing; pro typography${voiceLine}
+Technical Specifications: High-resolution image at 300 DPI for clear detail.
+Dimensions: Optimized for online listings at 2000×2000 pixels.`);
+          }
+        },
+        size_chart: {
+          label: "Size / Dimensions",
+          purpose: "Answer size/fit objections",
+          requires: ['dimensions'],
+          builder: ({ productData }) => {
+            const dims = productData.specifications?.dimensions || 'dimensions';
+            const subject = productData.productCategory || productData.title || 'product';
+            return (
+`System: Design a readable size diagram for Amazon mobile.
+User:
+Create a SIZE DIAGRAM for a ${subject} showing ${dims}.
+• White/neutral background; product ~75–80% of frame
+• Clean lines + arrows; large labels; no paragraphs
+• Add in‑hand/common‑object reference if helpful
+Technical Specifications: High-resolution image at 300 DPI for clear detail.
+Dimensions: Optimized for online listings at 2000×2000 pixels.`);
+          }
+        },
+        whats_included: {
+          label: "What’s Included",
+          purpose: "Show package contents",
+          requires: [],
+          builder: ({ productData }) => {
+            const subject = productData.productCategory || productData.title || 'product';
+            return (
+`System: Lay out package contents clearly and credibly.
+User:
+Create a WHAT’S INCLUDED image for a ${subject}.
+• Show each included item distinctly with a short label
+• Consistent lighting; neutral background; no clutter
+• Optional micro note per item (≤3–5 words); no body text
+Technical Specifications: High-resolution image at 300 DPI for clear detail.
+Dimensions: Optimized for online listings at 2000×2000 pixels.`);
+          }
+        },
+        comparison: {
+          label: "Comparison",
+          purpose: "You vs. Alt / Gen1 vs. Gen2",
+          requires: [],
+          builder: ({ productData }) => {
+            const subject = productData.productCategory || productData.title || 'product';
+            return (
+`System: Build a scannable comparison chart that reads at a glance.
+User:
+Create a COMPARISON chart for a ${subject} vs alternative.
+• 3–5 rows; one benefit per row (short phrases)
+• “Ours” vs “Theirs” with clear check/neutral markers
+• Strong contrast, generous spacing; no paragraphs
+Technical Specifications: High-resolution image at 300 DPI for clear detail.
+Dimensions: Optimized for online listings at 2000×2000 pixels.`);
+          }
+        },
+        materials: {
+          label: "Material/Ingredients",
+          purpose: "Show materials or ingredients",
+          requires: [],
+          builder: ({ productData }) => {
+            const subject = productData.productCategory || productData.title || 'product';
+            const materials = productData.specifications?.materials?.join(', ') || 'key materials';
+            return (
+`System: Visualize materials/ingredients credibly and clearly.
+User:
+Create a MATERIALS/INGREDIENTS image for a ${subject}, featuring: ${materials}.
+• Macro detail crops or clean icons; minimal labels
+• Neutral background; honest color; no exaggeration
+Technical Specifications: High-resolution image at 300 DPI for clear detail.
+Dimensions: Optimized for online listings at 2000×2000 pixels.`);
+          }
+        },
+        use_cases: {
+          label: "Use Cases",
+          purpose: "Grid of scenarios",
+          requires: [],
+          builder: ({ productData, profileData, leverSeed }) => {
+            const subject = productData.productCategory || productData.title || 'product';
+            const audience = productData.targetAudience === 'Custom' && productData.customTargetAudience ? productData.customTargetAudience : (productData.targetAudience || profileData?.targetAudience || 'customers');
+            const grid = ['2x2', '3x2'][leverSeed % 2];
+            return (
+`System: Show realistic, value-focused scenarios that feel native to the audience.
+User:
+Create a USE CASES grid (${grid}) for a ${subject} for ${audience}.
+• One clear scenario label per cell; minimal copy
+• Consistent look across cells; mobile-first contrast
+Technical Specifications: High-resolution image at 300 DPI for clear detail.
+Dimensions: Optimized for online listings at 2000×2000 pixels.`);
+          }
+        },
+        before_after: {
+          label: "Before/After",
+          purpose: "Show relevant transformation",
+          requires: [],
+          builder: ({ productData }) => {
+            const subject = productData.productCategory || productData.title || 'product';
+            return (
+`System: Present a credible transformation; avoid exaggerated claims.
+User:
+Create a BEFORE/AFTER image for a ${subject} demonstrating a realistic, quantifiable improvement (derive metric from product context).
+• Clear split (left/right or top/bottom); large labels
+• Realistic lighting and texture; no unrealistic edits
+• Short phrases only; legible on mobile
+Technical Specifications: High-resolution image at 300 DPI for clear detail.
+Dimensions: Optimized for online listings at 2000×2000 pixels.`);
+          }
+        },
+        tech_exploded: {
+          label: "Tech Exploded",
+          purpose: "Components exploded view",
+          requires: [],
+          builder: ({ productData }) => {
+            const subject = productData.productCategory || productData.title || 'product';
+            return (
+`System: Build an exploded view that’s easy to scan.
+User:
+Create a TECH EXPLODED diagram for a ${subject}.
+• Separate key components with lines + labels (4–6 items)
+• Balanced spacing; neutral background; crisp edges
+• Minimal text; no paragraphs
+Technical Specifications: High-resolution image at 300 DPI for clear detail.
+Dimensions: Optimized for online listings at 2000×2000 pixels.`);
+          }
+        },
+        compatibility: {
+          label: "Compatibility Guide",
+          purpose: "Show what it works with",
+          requires: [],
+          builder: ({ productData }) => {
+            const subject = productData.productCategory || productData.title || 'product';
+            return (
+`System: Present compatibility info compactly and clearly.
+User:
+Create a COMPATIBILITY GUIDE for a ${subject}, deriving common compatible devices/sizes from context (e.g., “compatible with most adult head sizes”, “works with iPhone/Android/USB‑C”).
+• Logical groups; large labels; consistent icons
+• No dense copy; short scannable lines
+• Neutral background; strong contrast
+Technical Specifications: High-resolution image at 300 DPI for clear detail.
+Dimensions: Optimized for online listings at 2000×2000 pixels.`);
+          }
+        },
+      };
+
+      const useTemplate = !!args.templateId && templates[args.templateId!];
+      const leverSeed = Math.max(1, (args.agentInstance || 1));
+
+      let infographicPrompt: string;
+      if (useTemplate) {
+        console.log(`[Infographic] Using template: ${args.templateId}`);
+        // Requirement checks
+        const requires = templates[args.templateId!].requires || [];
+        if (requires.includes('dimensions') && !productData.specifications?.dimensions) {
+          throw new Error("Add dimensions in Product node to unlock Size / Dimensions template.");
+        }
+        infographicPrompt = templates[args.templateId!].builder({
+          productData,
+          profileData: args.profileData,
+          brandKitData: args.brandKitData,
+          leverSeed,
+        });
+      } else {
+        // Fallback to existing logic
       console.log("[Infographic] Building infographic prompt using proven logic with Brand Kit integration");
       console.log("[Infographic] Using hero image base:", !!args.usingHeroImageBase);
-      let infographicPrompt = buildHackathonPrompt(
+        infographicPrompt = buildHackathonPrompt(
         'infographic',
         productData,
         args.connectedAgentOutputs,
@@ -884,6 +1099,26 @@ export const generateInfographic = action({
         args.usingHeroImageBase,
         args.agentInstance
       );
+
+        // Sophisticated variations only in fallback mode
+        let selectedFeatureForHook = '';
+        const currentAgentInstance = args.agentInstance || 1;
+        if (currentAgentInstance >= 2) {
+          const keyFeatures = productData.keyFeatures || (productData.features && productData.features.length > 0 ? productData.features.join(', ') : 'key features');
+          const individualFeatures = parseIndividualFeatures(keyFeatures);
+          const cycleIndex = Math.floor(Date.now() / 1000) % individualFeatures.length;
+          selectedFeatureForHook = individualFeatures[cycleIndex];
+          console.log(`[Infographic] Selected feature for hook generation (timestamp cycle ${cycleIndex}): "${selectedFeatureForHook}"`);
+        }
+        infographicPrompt = applyInfographicPromptVariations(
+          infographicPrompt,
+          currentAgentInstance,
+          productData,
+          args.profileData,
+          args.brandKitData,
+          selectedFeatureForHook
+        );
+      }
 
       // RE-ENABLED: Sophisticated Hook Generation System for compelling storytelling
       console.log("[Infographic] Applying sophisticated prompt variations for compelling hooks and storytelling");
@@ -994,6 +1229,7 @@ export const generateInfographic = action({
       return {
         concept: conceptMessage,
         imageUrl: finalUrl,
+        prompt: infographicPrompt,
         storageId: storageId
       };
       

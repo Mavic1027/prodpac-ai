@@ -121,6 +121,8 @@ function InnerCanvas({
   const [isChatGenerating, setIsChatGenerating] = useState(false);
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
   const [copiedShareLink, setCopiedShareLink] = useState(false);
+  const [templatePickerOpen, setTemplatePickerOpen] = useState<null | { nodeId: string }>(null);
+  const [templateSearch, setTemplateSearch] = useState("");
   
   // Phase 2: Agent Picker state for pull-to-spawn
   const [agentPickerVisible, setAgentPickerVisible] = useState(false);
@@ -167,6 +169,7 @@ function InnerCanvas({
   const deleteProduct = useMutation(api.products.remove);
   const deleteAgent = useMutation(api.agents.remove);
   const createShareLink = useMutation(api.shares.createShareLink);
+  const updateAgentTemplate = useMutation(api.agents.updateInfographicTemplate);
   const getShareLink = useQuery(api.shares.getShareLink, { projectId });
   const updateCanvasBrandKit = useMutation(api.brandKits.updateCanvasBrandKit);
   
@@ -701,6 +704,9 @@ function InnerCanvas({
         );
 
         // Generate infographic with vision API
+        // Grab selected template (from node.data or persisted agent state if present later)
+        const selectedTemplateId = agentNode.data.selectedTemplateId as string | undefined;
+
         console.log("[Canvas] Calling generateInfographic action with:", {
           productId: videoNode.data.productId,
           imageCount: productImages.length,
@@ -710,7 +716,8 @@ function InnerCanvas({
           hasProfile: !!profileData,
           hasBrandKit: !!brandKitData,
           agentInstance: agentInstance,
-          usingHeroImageBase: agentInstance === 1
+          usingHeroImageBase: agentInstance === 1,
+          templateId: selectedTemplateId
         });
         
         const infographicResult = await generateInfographic({
@@ -723,6 +730,7 @@ function InnerCanvas({
           brandKitData,
           additionalContext,
           agentInstance: agentInstance, // Pass agent instance for infographic prompt variations
+          templateId: selectedTemplateId,
         });
         
         console.log("[Canvas] Infographic generation completed");
@@ -1952,7 +1960,7 @@ IMPORTANT INSTRUCTIONS:
       }
       
       // ✅ 4-AGENT LIMIT: Check if adding this specific agent type would exceed the limit
-      const imageAgentTypes = ["hero-image", "lifestyle-image"];
+      const imageAgentTypes = ["hero-image", "lifestyle-image", "infographic"];
       if (imageAgentTypes.includes(agentType)) {
         const existingAgentsOfThisType = nodesRef.current.filter((n: any) => 
           n.type === 'agent' && n.data.type === agentType
@@ -1998,6 +2006,8 @@ IMPORTANT INSTRUCTIONS:
               setPromptModalOpen(true);
             }
           },
+          // Infographic template selection launcher
+          onSelectTemplate: () => openInfographicTemplatePicker(nodeId),
         },
       };
       
@@ -2040,6 +2050,15 @@ IMPORTANT INSTRUCTIONS:
     setAgentPickerVisible(false);
     setDragFromNodeId(null);
     connectionStartRef.current = null;
+  }, []);
+  
+  // Open/close template picker for infographic nodes
+  const openInfographicTemplatePicker = useCallback((nodeId: string) => {
+    setTemplatePickerOpen({ nodeId });
+  }, []);
+  const closeInfographicTemplatePicker = useCallback(() => {
+    setTemplatePickerOpen(null);
+    setTemplateSearch("");
   }, []);
    
   // Perform the actual deletion
@@ -2621,7 +2640,7 @@ IMPORTANT INSTRUCTIONS:
       }
 
       // ✅ 4-AGENT LIMIT: Check if adding this specific agent type would exceed the limit
-      const imageAgentTypes = ["hero-image", "lifestyle-image"];
+      const imageAgentTypes = ["hero-image", "lifestyle-image", "infographic"];
       if (imageAgentTypes.includes(type)) {
         const existingAgentsOfThisType = nodes.filter((n: any) => 
           n.type === 'agent' && n.data.type === type
@@ -2670,6 +2689,8 @@ IMPORTANT INSTRUCTIONS:
                 setPromptModalOpen(true);
               }
             },
+            // Ensure infographic template picker is available for sidebar drag-and-drop as well
+            onSelectTemplate: () => openInfographicTemplatePicker(nodeId),
           },
         };
 
@@ -2736,6 +2757,7 @@ IMPORTANT INSTRUCTIONS:
             targetAudience: product.targetAudience,
             customTargetAudience: product.customTargetAudience,
             productCategory: product.productCategory,
+            specifications: product.specifications,
             // brandVoice removed - now handled by Brand Kit
             onImageClick: () => handleVideoClick({
               url: product.productImages?.[0]?.url || '',
@@ -2783,6 +2805,7 @@ IMPORTANT INSTRUCTIONS:
                 setPromptModalOpen(true);
               }
             },
+            onSelectTemplate: () => openInfographicTemplatePicker(`agent_${agent.type}_${agent._id}`),
           },
         };
       });
@@ -3472,6 +3495,79 @@ IMPORTANT INSTRUCTIONS:
               position={agentPickerPosition}
               onClose={closeAgentPicker}
             />
+          )}
+
+          {/* Infographic Template Picker Modal */}
+          {templatePickerOpen && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center">
+              <div className="absolute inset-0 bg-black/40" onClick={closeInfographicTemplatePicker} />
+              <div className="relative z-10 w-[420px] max-w-[90vw] rounded-xl border bg-background shadow-2xl">
+                <div className="p-4 border-b">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <div className="text-sm font-semibold">Infographic Templates</div>
+                      <div className="text-xs text-muted-foreground">Pick a style for this node</div>
+                    </div>
+                    <Button variant="ghost" size="sm" onClick={closeInfographicTemplatePicker}>Close</Button>
+                  </div>
+                  <div className="mt-3">
+                    <input
+                      value={templateSearch}
+                      onChange={(e) => setTemplateSearch(e.target.value)}
+                      placeholder="Search templates"
+                      className="w-full h-9 px-3 rounded-md bg-muted text-sm outline-none"
+                    />
+                  </div>
+                </div>
+                <div className="p-2 max-h-72 overflow-auto">
+                  {[
+                    { id: 'main_benefit', label: 'Main Benefit', purpose: 'Instant #1 reason to buy in <1s' },
+                    { id: 'feature_callouts', label: 'Feature Callouts (3–5)', purpose: 'Highlight 3–5 key features' },
+                    { id: 'size_chart', label: 'Size / Dimensions', purpose: 'Answer size/fit objections', requires: ['dimensions'] },
+                    { id: 'whats_included', label: "What’s Included", purpose: 'Show package contents' },
+                    { id: 'comparison', label: 'Comparison', purpose: 'You vs. Alt / Gen1 vs. Gen2' },
+                    { id: 'materials', label: 'Material/Ingredients', purpose: 'Show materials or ingredients' },
+                    { id: 'use_cases', label: 'Use Cases', purpose: 'Grid of scenarios' },
+                    { id: 'before_after', label: 'Before/After', purpose: 'Show relevant transformation' },
+                    { id: 'tech_exploded', label: 'Tech Exploded', purpose: 'Components exploded view' },
+                    { id: 'compatibility', label: 'Compatibility Guide', purpose: 'Show what it works with' },
+                  ]
+                    .filter(t => !templateSearch || t.label.toLowerCase().includes(templateSearch.toLowerCase()) || t.purpose.toLowerCase().includes(templateSearch.toLowerCase()))
+                    .map((t) => {
+                      const node = nodesRef.current.find((n: any) => n.id === templatePickerOpen.nodeId);
+                      const productNode = nodesRef.current.find((n: any) => n.type === 'video');
+                      const hasDimensions = !!productNode?.data?.specifications?.dimensions || !!productNode?.data?.productDimensions || !!productNode?.data?.dimensions;
+                      const disabled = t.requires?.includes('dimensions') && !hasDimensions;
+                      return (
+                        <button
+                          key={t.id}
+                          className={`w-full text-left px-3 py-2 rounded-md hover:bg-muted/60 ${disabled ? 'opacity-60 cursor-not-allowed' : ''}`}
+                          onClick={async () => {
+                            if (disabled) return;
+                            // Persist on the agent and update node UI
+                            if (!node) {
+                              console.warn('[Templates] Node not yet in refs; applying selection to node state only');
+                            }
+                            if (node?.data?.agentId) {
+                              try {
+                                await updateAgentTemplate({ id: node.data.agentId as Id<'agents'>, templateId: t.id });
+                              } catch (e) {
+                                console.error('Failed to save template selection', e);
+                              }
+                            }
+                            setNodes((nds: any) => nds.map((n: any) => n.id === templatePickerOpen.nodeId ? { ...n, data: { ...n.data, selectedTemplateId: t.id, selectedTemplateLabel: t.label } } : n));
+                            closeInfographicTemplatePicker();
+                          }}
+                          title={disabled ? 'Add dimensions in Product node to unlock.' : ''}
+                        >
+                          <div className="text-sm font-medium">{t.label}</div>
+                          <div className="text-xs text-muted-foreground">{t.purpose}</div>
+                        </button>
+                      );
+                    })}
+                </div>
+              </div>
+            </div>
           )}
         </div>
         

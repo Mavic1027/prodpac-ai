@@ -148,6 +148,10 @@ export default defineSchema({
     imageUrl: v.optional(v.string()), // Renamed from thumbnailUrl
     imageStorageId: v.optional(v.id("_storage")), // Renamed from thumbnailStorageId
     connections: v.array(v.string()),
+    // Infographic template selection (optional, only used for infographic agents)
+    templateId: v.optional(v.string()),
+    templateVariantIndex: v.optional(v.number()),
+    templateParams: v.optional(v.any()),
     chatHistory: v.array(
       v.object({
         role: v.union(v.literal("user"), v.literal("ai")),

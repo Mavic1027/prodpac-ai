@@ -90,6 +90,35 @@ export const updateDraft = mutation({
   },
 });
 
+export const updateInfographicTemplate = mutation({
+  args: {
+    id: v.id("agents"),
+    templateId: v.string(),
+    templateVariantIndex: v.optional(v.number()),
+    templateParams: v.optional(v.any()),
+  },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+    const userId = identity.subject;
+
+    const agent = await ctx.db.get(args.id);
+    if (!agent || agent.userId !== userId) {
+      throw new Error("Agent not found or unauthorized");
+    }
+
+    if (agent.type !== "infographic") {
+      throw new Error("Template selection is only supported for infographic agents");
+    }
+
+    await ctx.db.patch(args.id, {
+      templateId: args.templateId,
+      templateVariantIndex: args.templateVariantIndex,
+      templateParams: args.templateParams,
+    });
+  },
+});
+
 export const updateConnections = mutation({
   args: {
     id: v.id("agents"),

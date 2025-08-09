@@ -179,6 +179,7 @@ export const updateProductInfo = mutation({
     customTargetAudience: v.optional(v.string()),
     productCategory: v.optional(v.string()),
     brandVoice: v.optional(v.string()),
+    dimensions: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
@@ -190,8 +191,18 @@ export const updateProductInfo = mutation({
       throw new Error("Product not found or unauthorized");
     }
 
-    const { productId, ...updates } = args;
-    await ctx.db.patch(args.productId, updates);
+    const { productId, dimensions, ...updates } = args;
+
+    // If dimensions provided, merge into specifications instead of overwriting unrelated fields
+    if (dimensions !== undefined) {
+      const nextSpecs = {
+        ...(product.specifications || {}),
+        dimensions,
+      } as any;
+      await ctx.db.patch(args.productId, { ...updates, specifications: nextSpecs });
+    } else {
+      await ctx.db.patch(args.productId, updates);
+    }
     
     return await ctx.db.get(args.productId);
   },

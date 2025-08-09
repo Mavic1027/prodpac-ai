@@ -36,6 +36,7 @@ export interface ProductNodeData {
   targetAudience?: string;
   customTargetAudience?: string;
   productCategory?: string;
+  specifications?: { dimensions?: string };
 }
 
 const TARGET_AUDIENCES = [
@@ -69,6 +70,7 @@ export const ProductNode = memo(({ data, selected, id }: NodeProps & { id: strin
     targetAudience: productData.targetAudience || "",
     customTargetAudience: productData.customTargetAudience || "",
     productCategory: productData.productCategory || "",
+    dimensions: productData.specifications?.dimensions || "",
   });
   
   const updateProductInfo = useMutation(api.products.updateProductInfo);
@@ -118,7 +120,7 @@ export const ProductNode = memo(({ data, selected, id }: NodeProps & { id: strin
   };
 
   // Check if form has any data
-  const hasProductInfo = formData.productName || formData.keyFeatures || formData.targetKeywords || formData.targetAudience || formData.customTargetAudience || formData.productCategory;
+  const hasProductInfo = formData.productName || formData.keyFeatures || formData.targetKeywords || formData.targetAudience || formData.customTargetAudience || formData.productCategory || formData.dimensions;
   
   return (
     <div className={`relative group ${selected ? "scale-105" : ""} transition-transform duration-200`}>
@@ -142,7 +144,7 @@ export const ProductNode = memo(({ data, selected, id }: NodeProps & { id: strin
         </div>
       
         {productData.isUploading ? (
-          <div className="mb-3 aspect-video bg-gradient-to-br from-muted/50 to-muted/30 rounded-xl flex items-center justify-center">
+          <div className="mb-3 aspect-[4/5] bg-gradient-to-br from-muted/50 to-muted/30 rounded-xl flex items-center justify-center">
             <div className="text-center">
               <div className="relative">
                 <div className="absolute inset-0 bg-primary/20 rounded-full blur-xl animate-pulse" />
@@ -155,7 +157,7 @@ export const ProductNode = memo(({ data, selected, id }: NodeProps & { id: strin
         ) : mediaUrl ? (
           <div 
             className="relative mb-3 rounded-xl overflow-hidden cursor-pointer group/image shadow-lg"
-            style={{ aspectRatio: '16/9' }}
+            style={{ aspectRatio: '4 / 5' }}
             onClick={() => {
               if (productData.onImageClick) {
                 productData.onImageClick();
@@ -191,7 +193,7 @@ export const ProductNode = memo(({ data, selected, id }: NodeProps & { id: strin
             )}
           </div>
         ) : (
-          <div className="mb-3 aspect-video bg-gradient-to-br from-muted/50 to-muted/30 rounded-xl flex items-center justify-center border border-dashed border-muted-foreground/20">
+          <div className="mb-3 aspect-[4/5] bg-gradient-to-br from-muted/50 to-muted/30 rounded-xl flex items-center justify-center border border-dashed border-muted-foreground/20">
             <div className="text-center">
               <ImageIcon className="h-10 w-10 text-muted-foreground/50 mx-auto mb-2" />
               <p className="text-xs text-muted-foreground">No image loaded</p>
@@ -288,6 +290,18 @@ export const ProductNode = memo(({ data, selected, id }: NodeProps & { id: strin
                   placeholder="e.g., Electronics, Home & Garden, Sports..."
                   value={formData.productCategory}
                   onChange={(e) => handleFormChange('productCategory', e.target.value)}
+                  className="text-xs"
+                />
+              </div>
+
+              {/* Dimensions */}
+              <div className="space-y-2">
+                <Label htmlFor="dimensions" className="text-xs font-medium">Dimensions</Label>
+                <Input
+                  id="dimensions"
+                  placeholder="e.g., 10 x 7 x 3 in or 25 x 18 x 8 cm"
+                  value={formData.dimensions}
+                  onChange={(e) => handleFormChange('dimensions', e.target.value)}
                   className="text-xs"
                 />
               </div>
