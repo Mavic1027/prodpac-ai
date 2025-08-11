@@ -30,6 +30,14 @@ import { ProductNode } from "./ProductNode";
 import { VideoPlayerModal } from "./VideoPlayerModal";
 import { ImageModal } from "./ImageModal";
 import { BrandKitNode } from "./BrandKitNode";
+import { ThemeToggle } from "~/components/ui/ThemeToggle";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "~/components/ui/dropdown-menu";
 
 const nodeTypes: NodeTypes = {
   video: ProductNode,
@@ -3284,58 +3292,29 @@ IMPORTANT INSTRUCTIONS:
             
             {!isSidebarCollapsed && (
               <div className="space-y-4 pt-2">
-                <div className="space-y-3 rounded-lg bg-muted/50 p-3">
-                  <div className="flex items-center gap-2">
-                    <Settings2 className="h-4 w-4 text-muted-foreground" />
-                    <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Canvas Settings</span>
-                  </div>
-                  
-                  <div className="space-y-3">
-                    
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm">Mini-map</span>
-                      <button
-                        onClick={() => setShowMiniMap(!showMiniMap)}
-                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-all ${
-                          showMiniMap ? 'bg-primary' : 'bg-muted'
-                        }`}
-                      >
-                        <span
-                          className={`inline-block h-4 w-4 transform rounded-full bg-white shadow-sm transition-transform ${
-                            showMiniMap ? 'translate-x-6' : 'translate-x-1'
-                          }`}
-                        />
-                      </button>
-                    </div>
-                    
-                    {/* Share button */}
-                    <div className="pt-3 border-t border-border/50">
-                      <Button
-                        onClick={handleShare}
-                        variant="outline"
-                        size="sm"
-                        className="w-full justify-start gap-2"
-                      >
-                        {copiedShareLink ? (
-                          <>
-                            <Check className="h-4 w-4 text-green-500" />
-                            <span>Copied!</span>
-                          </>
-                        ) : (
-                          <>
-                            <Share2 className="h-4 w-4" />
-                            <span>Share Canvas</span>
-                          </>
-                        )}
-                      </Button>
-                      {getShareLink && (
-                        <p className="text-xs text-muted-foreground mt-2">
-                          Share link already exists
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                </div>
+                {/* Theme Toggle */}
+                <ThemeToggle />
+
+                {/* Consolidated Settings Dropdown */}
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="outline" className="w-full justify-start gap-2">
+                      <Settings2 className="h-4 w-4" />
+                      <span>Settings</span>
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start" className="w-56">
+                    <DropdownMenuItem onClick={() => setShowMiniMap(!showMiniMap)}>
+                      <Map className="h-4 w-4" />
+                      <span className="ml-1">Toggle Mini-map</span>
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onClick={handleShare}>
+                      <Share2 className="h-4 w-4" />
+                      <span className="ml-1">Share Canvas Link</span>
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
                 
                 <VideoProcessingHelp />
               </div>
@@ -3343,37 +3322,27 @@ IMPORTANT INSTRUCTIONS:
             
             {isSidebarCollapsed && (
               <div className="flex flex-col gap-2">
-                <Button 
-                  onClick={() => setShowMiniMap(!showMiniMap)}
-                  variant={showMiniMap ? "secondary" : "ghost"}
-                  size="icon"
-                  title="Toggle Mini-map"
-                  className="w-full"
-                >
-                  <Map className="h-5 w-5" />
-                </Button>
-                <Button 
-                  onClick={() => setEnableEdgeAnimations(!enableEdgeAnimations)}
-                  variant={enableEdgeAnimations ? "secondary" : "ghost"}
-                  size="icon"
-                  title="Toggle Animations"
-                  className="w-full"
-                >
-                  <Settings2 className="h-5 w-5" />
-                </Button>
-                <Button 
-                  onClick={handleShare}
-                  variant="ghost"
-                  size="icon"
-                  title="Share Canvas"
-                  className="w-full relative"
-                >
-                  {copiedShareLink ? (
-                    <Check className="h-5 w-5 text-green-500" />
-                  ) : (
-                    <Share2 className="h-5 w-5" />
-                  )}
-                </Button>
+                {/* After Preview: Theme toggle */}
+                <ThemeToggle title="Toggle theme" />
+                {/* Settings icon with dropdown */}
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="ghost" size="icon" title="Settings" className="w-full">
+                      <Settings2 className="h-5 w-5" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start" className="w-56">
+                    <DropdownMenuItem onClick={() => setShowMiniMap(!showMiniMap)}>
+                      <Map className="h-4 w-4" />
+                      <span className="ml-1">Toggle Mini-map</span>
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onClick={handleShare}>
+                      <Share2 className="h-4 w-4" />
+                      <span className="ml-1">Share Canvas Link</span>
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
               </div>
             )}
           </div>
