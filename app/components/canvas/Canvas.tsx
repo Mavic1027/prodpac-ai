@@ -38,6 +38,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "~/components/ui/dropdown-menu";
+import { useTheme } from "~/hooks/use-theme";
 
 const nodeTypes: NodeTypes = {
   video: ProductNode,
@@ -86,6 +87,8 @@ function InnerCanvas({
   useEdgesState: any;
   addEdge: any;
 }) {
+  const { theme } = useTheme();
+  const isDark = theme === "dark";
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
@@ -3356,13 +3359,13 @@ IMPORTANT INSTRUCTIONS:
               ...edge,
               animated: enableEdgeAnimations && !isDragging,
               style: { 
-                stroke: '#6366f1',
+                stroke: isDark ? '#A5B4FC' : '#6366F1',
                 strokeWidth: 2,
-                strokeOpacity: 0.5
+                strokeOpacity: isDark ? 0.7 : 0.5
               },
               markerEnd: {
                 type: 'arrowclosed',
-                color: '#6366f1',
+                color: isDark ? '#A5B4FC' : '#6366F1',
                 width: 20,
                 height: 20,
               }
@@ -3426,8 +3429,8 @@ IMPORTANT INSTRUCTIONS:
               variant="dots" 
               gap={16} 
               size={1}
-              color="#94a3b8"
-              style={{ opacity: 0.4 }}
+              color={isDark ? '#3F3F46' : '#94a3b8'}
+              style={{ opacity: isDark ? 0.6 : 0.4 }}
             />
             <Controls 
               className="!shadow-xl !border !border-border/50 !bg-background/95 !backdrop-blur-sm"
