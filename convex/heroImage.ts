@@ -1,7 +1,8 @@
 import { v } from "convex/values";
 import { action } from "./_generated/server";
 import { api } from "./_generated/api";
-import OpenAI, { toFile } from "openai";
+import { generateImage, resolveImageToBase64, base64ToBlob, getApiKey } from "./nanobananaPro";
+import { buildHeroImagePrompt } from "./promptBuilder";
 
 // Import the proven prompt building function from aiHackathon
 function buildHackathonPrompt(
@@ -397,14 +398,8 @@ export const generateHeroImage = action({
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) throw new Error("Unauthorized");
 
-    // Get OpenAI API key from Convex environment
-    const apiKey = process.env.OPENAI_API_KEY;
-    if (!apiKey) {
-      console.error("[Hero Image] OpenAI API key not configured");
-      throw new Error("Hero image generation service is not configured. Please contact support.");
-    }
-
-    const openai = new OpenAI({ apiKey });
+    // Get nanoBanana Pro API key from Convex environment
+    const apiKey = getApiKey();
 
     try {
       // If we have a productId, fetch the latest product data with features
@@ -469,40 +464,26 @@ export const generateHeroImage = action({
         throw new Error("No product images provided. Please connect to a Product Image Node with uploaded images.");
       }
 
-      // Use the proven buildHackathonPrompt function like Title Generator
-      console.log("[Hero Image] Building hero image editing prompt using proven logic");
-      let heroImagePrompt = buildHackathonPrompt(
-        'hero-image',
+      // Build optimized structured prompt for Gemini 3 Pro Image
+      const agentInstance = args.agentInstance || 1;
+      console.log("[Hero Image] Building optimized prompt for gemini-3-pro-image-preview");
+      console.log("[Hero Image] Agent instance:", agentInstance);
+      
+      let heroImagePrompt = buildHeroImagePrompt(
         productData,
-        args.connectedAgentOutputs,
-        args.profileData
+        args.profileData,
+        null, // brandKitData not used for hero images
+        agentInstance
       );
 
-      // Apply prompt variations based on agent instance
-      const agentInstance = args.agentInstance || 1;
-      console.log(`[Hero Image] Applying prompt variations for agent instance ${agentInstance}`);
-      heroImagePrompt = applyPromptVariations('hero-image', heroImagePrompt, agentInstance);
-
-          // If user provided specific instructions via chat, resolve conflicts first
-    if (args.additionalContext && args.additionalContext.trim()) {
-      console.log("[Hero Image] Adding user-specific instructions:", args.additionalContext);
-      console.log("[Hero Image] Resolving prompt conflicts with user instructions...");
-      
-      // Smart conflict resolution - replaces base instructions with specific photography terms
-      const originalPrompt = heroImagePrompt;
-      heroImagePrompt = resolvePromptConflicts(heroImagePrompt, args.additionalContext);
-      
-      // Check if we made a smart replacement or need to add user instructions
-      if (originalPrompt !== heroImagePrompt) {
-        // Smart replacement was made, add user context for clarity
-        heroImagePrompt += `\n\n🎯 USER CONTEXT: User requested "${args.additionalContext}" - this has been translated into precise photography instructions above.`;
-      } else {
-        // No smart replacement, add user instructions as primary directive
-        heroImagePrompt += `\n\n🎯 PRIMARY USER REQUEST: "${args.additionalContext}"\n`;
-        heroImagePrompt += `IMPORTANT: The user's request above is the PRIMARY instruction. Follow it precisely while maintaining Amazon compliance (white background, studio lighting, etc.).\n`;
-        heroImagePrompt += `If there are any conflicts between the user's request and other instructions, ALWAYS prioritize the user's request.`;
+      // If user provided specific instructions via chat, append them
+      if (args.additionalContext && args.additionalContext.trim()) {
+        console.log("[Hero Image] Adding user-specific instructions:", args.additionalContext);
+        heroImagePrompt += `\n\n"user_override": {
+  "instruction": "${args.additionalContext}",
+  "priority": "HIGH - Apply this modification to the output while maintaining Amazon compliance"
+}`;
       }
-    }
 
       // DEBUG: Log the exact prompt being sent to AI
       console.log(`[Hero Image] EXACT PROMPT BEING SENT TO AI:`);
@@ -510,43 +491,38 @@ export const generateHeroImage = action({
       console.log(heroImagePrompt);
       console.log(`--- PROMPT END ---`);
 
-      // Convert first product image to the format needed for gpt-image-1 editing
-      console.log("[Hero Image] Converting product image for gpt-image-1 editing...");
+      // Convert first product image to base64 for nanoBanana Pro
+      // Convert first product image to base64 for nanoBanana Pro
+      // Uses resolveImageToBase64 to handle both URLs (from Convex storage) and data URLs
+      console.log("[Hero Image] Converting product image for nanoBanana Pro...");
       const sourceImage = args.productImages[0];
-      
-      // Convert dataUrl to blob
-      const response = await fetch(sourceImage.dataUrl);
-      const imageBlob = await response.blob();
-      console.log("[Hero Image] Source image blob size:", imageBlob.size);
-      
-      // Convert blob to OpenAI file format
-      const imageFile = await toFile(imageBlob, 'source-product-image.png', {
-        type: imageBlob.type || 'image/png',
-      });
+      const referenceImageBase64 = await resolveImageToBase64(sourceImage.dataUrl);
+      console.log("[Hero Image] Reference image base64 length:", referenceImageBase64.length);
 
-      // Use gpt-image-1 for hero image editing (taking existing product image and making it Amazon-compliant)
-      console.log("[Hero Image] Editing product image with gpt-image-1...");
-      const imageResponse = await openai.images.edit({
-        model: "gpt-image-1",
-        image: imageFile,
-        prompt: heroImagePrompt,
-      });
+      // Use Gemini 3 Pro Image (gemini-3-pro-image-preview) for hero image editing
+      console.log("[Hero Image] Generating hero image with gemini-3-pro-image-preview...");
+      const imageResponse = await generateImage(
+        { apiKey, resolution: "2K", aspectRatio: "1:1" },
+        {
+          prompt: heroImagePrompt,
+          referenceImages: [referenceImageBase64],
+        }
+      );
       
-      const imageData = imageResponse.data?.[0];
-      if (!imageData?.b64_json) {
-        throw new Error("No base64 image data returned from gpt-image-1 API");
+      if (!imageResponse.success) {
+        throw new Error(imageResponse.error || "Failed to generate hero image");
       }
-      
-      console.log("[Hero Image] Hero image editing completed successfully");
-      
-      // Convert base64 to blob for storage (browser-compatible)
-      const base64String = imageData.b64_json;
-      const binaryString = atob(base64String);
-      const bytes = new Uint8Array(binaryString.length);
-      for (let i = 0; i < binaryString.length; i++) {
-        bytes[i] = binaryString.charCodeAt(i);
+
+      // Get base64 from response (Gemini API always returns base64 directly)
+      if (!imageResponse.imageBase64) {
+        throw new Error("No image data returned from Gemini API");
       }
-      const generatedImageBlob = new Blob([bytes], { type: 'image/png' });
+      const base64String = imageResponse.imageBase64;
+      
+      console.log("[Hero Image] Hero image generation completed successfully");
+      
+      // Convert base64 to blob for storage
+      const generatedImageBlob = base64ToBlob(base64String);
       console.log("[Hero Image] Generated image blob size:", generatedImageBlob.size);
       
       // Store in Convex storage
@@ -562,7 +538,7 @@ export const generateHeroImage = action({
       console.log("[Hero Image] Hero image generation completed successfully");
       
       return {
-        concept: "Professional Amazon hero shot created by transforming your uploaded product image with gpt-image-1 - pure white background, studio lighting, and Amazon compliance",
+        concept: "Professional Amazon hero shot created by transforming your uploaded product image with nanoBanana Pro - pure white background, studio lighting, and Amazon compliance",
         imageUrl: finalUrl,
         storageId: storageId
       };

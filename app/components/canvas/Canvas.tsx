@@ -191,6 +191,10 @@ function InnerCanvas({
   const generateInfographic = useAction(api.infographic.generateInfographic);
   const refineContent = useAction(api.chat.refineContent);
   const refineHeroImage = useAction(api.heroImageRefine.refineHeroImage);
+  // Image editing actions (for true image editing via chat)
+  const editLifestyleImage = useAction(api.imageEdit.editLifestyleImage);
+  const editHeroImage = useAction(api.imageEdit.editHeroImage);
+  const editInfographic = useAction(api.imageEdit.editInfographic);
 
   // Handle content generation for an agent node
   const handleGenerate = useCallback(async (nodeId: string, thumbnailImages?: File[], additionalContext?: string, imageCount?: number) => {
@@ -1385,169 +1389,359 @@ IMPORTANT INSTRUCTIONS:
       // Call appropriate refine action based on agent type
       let result: any;
       
-      // For hero-image, use the exact same handleGenerate logic as the "Generate" button
+      // For hero-image - edit if image exists, generate if not
       if (agentNode.data.type === "hero-image") {
-        console.log("[Canvas] Hero image chat - using same handleGenerate function as initial generation");
+        const hasExistingImage = !!agentNode.data.imageUrl;
+        
+        console.log("[Canvas] Hero image chat -", hasExistingImage ? "EDITING existing image" : "generating new image");
         
         // Create a dynamic response based on user's request
-        const getUserResponse = (message: string) => {
+        const getUserResponse = (message: string, isEdit: boolean) => {
           const lowerMsg = message.toLowerCase();
-          if (lowerMsg.includes('front')) return "Got it! Creating a front-facing shot now...";
-          if (lowerMsg.includes('angle') || lowerMsg.includes('side')) return "Got it! Changing the angle now...";
-          if (lowerMsg.includes('background')) return "Got it! Updating the background now...";
-          if (lowerMsg.includes('lighting')) return "Got it! Adjusting the lighting now...";
-          return "Got it! Creating an updated hero image now...";
+          if (isEdit) {
+            if (lowerMsg.includes('angle') || lowerMsg.includes('side') || lowerMsg.includes('front')) 
+              return "Got it! Editing the angle while keeping the product the same...";
+            if (lowerMsg.includes('background')) return "Got it! Editing the background while keeping the product...";
+            if (lowerMsg.includes('lighting')) return "Got it! Adjusting the lighting...";
+            if (lowerMsg.includes('color')) return "Got it! Editing the colors...";
+            return "Got it! Editing the hero image based on your instructions...";
+          } else {
+            if (lowerMsg.includes('front')) return "Got it! Creating a front-facing shot now...";
+            if (lowerMsg.includes('angle') || lowerMsg.includes('side')) return "Got it! Creating an angled shot now...";
+            if (lowerMsg.includes('background')) return "Got it! Creating with custom background now...";
+            return "Got it! Creating a hero image now...";
+          }
         };
 
         // Add immediate chat response
         setChatMessages(prev => [...prev, {
           id: `ai-${Date.now()}`,
           role: "ai",
-          content: getUserResponse(cleanMessage),
+          content: getUserResponse(cleanMessage, hasExistingImage),
           timestamp: Date.now(),
           agentId: agentNode.id,
         }]);
 
         try {
-          // Use the exact same handleGenerate function that works perfectly for initial generation
-          // This handles all the data gathering, product connections, and generation logic
-          await handleGenerate(agentNode.id, undefined, cleanMessage);
-          
-          // Add completion message after generation is done
-          setTimeout(() => {
-            setChatMessages(prev => [...prev, {
-              id: `ai-complete-${Date.now()}`,
-              role: "ai",
-              content: "✅ All set! New hero image generated.",
-              timestamp: Date.now(),
-              agentId: agentNode.id,
-            }]);
-          }, 500); // Small delay to ensure node update is visible first
+          if (hasExistingImage && agentNode.data.agentId) {
+            // TRUE IMAGE EDITING - edit the existing image
+            console.log("[Canvas] Using editHeroImage for true image editing");
+            
+            // Get the product image URL from connected product node
+            const connectedProductEdge = edgesRef.current.find((e: any) => 
+              e.target === agentNode.id && e.source?.includes('product')
+            );
+            const productNode = connectedProductEdge 
+              ? nodesRef.current.find((n: any) => n.id === connectedProductEdge.source) 
+              : null;
+            const productImageUrl = productNode?.data?.imageUrl || productNode?.data?.images?.[0]?.dataUrl;
+            
+            const editResult = await editHeroImage({
+              agentId: agentNode.data.agentId as Id<"agents">,
+              currentImageUrl: agentNode.data.imageUrl,
+              editInstruction: cleanMessage,
+              productImageUrl: productImageUrl,
+            });
+            
+            // Update node with edited image
+            setNodes((nds: any) =>
+              nds.map((node: any) =>
+                node.id === agentNode.id
+                  ? {
+                      ...node,
+                      data: {
+                        ...node.data,
+                        imageUrl: editResult.imageUrl,
+                        status: "ready",
+                      },
+                    }
+                  : node
+              )
+            );
+            
+            // Save to database
+            await updateAgentDraft({
+              id: agentNode.data.agentId as Id<"agents">,
+              draft: "",
+              status: "ready",
+              imageUrl: editResult.imageUrl,
+              imageStorageId: editResult.storageId as Id<"_storage"> | undefined,
+            });
+            
+            setTimeout(() => {
+              setChatMessages(prev => [...prev, {
+                id: `ai-complete-${Date.now()}`,
+                role: "ai",
+                content: "✅ Image edited! The product is preserved, only your requested change was applied.",
+                timestamp: Date.now(),
+                agentId: agentNode.id,
+              }]);
+            }, 500);
+            
+          } else {
+            // No existing image - generate a new one
+            await handleGenerate(agentNode.id, undefined, cleanMessage);
+            
+            setTimeout(() => {
+              setChatMessages(prev => [...prev, {
+                id: `ai-complete-${Date.now()}`,
+                role: "ai",
+                content: "✅ All set! Hero image generated.",
+                timestamp: Date.now(),
+                agentId: agentNode.id,
+              }]);
+            }, 500);
+          }
           
           return;
 
         } catch (error: any) {
-          console.error("[Canvas] Hero image generation error:", error);
+          console.error("[Canvas] Hero image error:", error);
           
-          // Add error message to chat
           setChatMessages(prev => [...prev, {
             id: `ai-error-${Date.now()}`,
             role: "ai",
-            content: `❌ Sorry, I encountered an error: ${error?.message || "Failed to process your request"}. Please try again or generate a new image if the issue persists.`,
+            content: `❌ Sorry, I encountered an error: ${error?.message || "Failed to process your request"}. Please try again.`,
             timestamp: Date.now(),
             agentId: agentNode.id,
           }]);
           return;
         }
       } else if (agentNode.data.type === "lifestyle-image") {
-        console.log("[Canvas] Lifestyle image chat - using same handleGenerate function as initial generation");
+        // Check if node already has an image - if so, EDIT it instead of regenerating
+        const hasExistingImage = !!agentNode.data.imageUrl;
+        
+        console.log("[Canvas] Lifestyle image chat -", hasExistingImage ? "EDITING existing image" : "generating new image");
         
         // Create a dynamic response based on user's request for lifestyle images
-        const getUserResponse = (message: string) => {
+        const getUserResponse = (message: string, isEdit: boolean) => {
           const lowerMsg = message.toLowerCase();
-          if (lowerMsg.includes('beach')) return "Got it! Creating a beach lifestyle scene now...";
-          if (lowerMsg.includes('kitchen')) return "Got it! Creating a kitchen lifestyle scene now...";
-          if (lowerMsg.includes('outdoor') || lowerMsg.includes('garden')) return "Got it! Creating an outdoor lifestyle scene now...";
-          if (lowerMsg.includes('gym') || lowerMsg.includes('fitness')) return "Got it! Creating a fitness lifestyle scene now...";
-          if (lowerMsg.includes('woman') || lowerMsg.includes('man')) return "Got it! Updating the person in the lifestyle scene now...";
-          if (lowerMsg.includes('scene') || lowerMsg.includes('setting')) return "Got it! Creating a new lifestyle setting now...";
-          return "Got it! Creating an updated lifestyle image now...";
+          if (isEdit) {
+            // Editing responses - emphasize we're modifying, not recreating
+            if (lowerMsg.includes('woman') || lowerMsg.includes('man') || lowerMsg.includes('grandmother') || lowerMsg.includes('person')) 
+              return "Got it! Editing the image to update the person while keeping everything else the same...";
+            if (lowerMsg.includes('color')) return "Got it! Editing the colors while keeping the scene and product the same...";
+            if (lowerMsg.includes('background') || lowerMsg.includes('scene')) return "Got it! Editing the background while keeping the product and composition...";
+            return "Got it! Editing the image based on your instructions...";
+          } else {
+            if (lowerMsg.includes('beach')) return "Got it! Creating a beach lifestyle scene now...";
+            if (lowerMsg.includes('kitchen')) return "Got it! Creating a kitchen lifestyle scene now...";
+            if (lowerMsg.includes('outdoor') || lowerMsg.includes('garden')) return "Got it! Creating an outdoor lifestyle scene now...";
+            if (lowerMsg.includes('gym') || lowerMsg.includes('fitness')) return "Got it! Creating a fitness lifestyle scene now...";
+            return "Got it! Creating a lifestyle image now...";
+          }
         };
 
         // Add immediate chat response
         setChatMessages(prev => [...prev, {
           id: `ai-${Date.now()}`,
           role: "ai",
-          content: getUserResponse(cleanMessage),
+          content: getUserResponse(cleanMessage, hasExistingImage),
           timestamp: Date.now(),
           agentId: agentNode.id,
         }]);
 
         try {
-          // Use the exact same handleGenerate function that works perfectly for initial generation
-          // This handles all the data gathering, product connections, and generation logic
-          console.log("[Canvas] About to call handleGenerate for lifestyle-image chat");
-          await handleGenerate(agentNode.id, undefined, cleanMessage);
-          console.log("[Canvas] handleGenerate completed for lifestyle-image chat");
-          
-          // Add completion message after generation is done
-          setTimeout(() => {
-            setChatMessages(prev => [...prev, {
-              id: `ai-complete-${Date.now()}`,
-              role: "ai",
-              content: "✅ All set! New lifestyle image generated.",
-              timestamp: Date.now(),
-              agentId: agentNode.id,
-            }]);
-          }, 500); // Small delay to ensure node update is visible first
+          if (hasExistingImage && agentNode.data.agentId) {
+            // TRUE IMAGE EDITING - edit the existing image instead of regenerating
+            console.log("[Canvas] Using editLifestyleImage for true image editing");
+            
+            // Get the product image URL from connected product node (for product fidelity)
+            const connectedProductEdge = edgesRef.current.find((e: any) => 
+              e.target === agentNode.id && e.source?.includes('product')
+            );
+            const productNode = connectedProductEdge 
+              ? nodesRef.current.find((n: any) => n.id === connectedProductEdge.source) 
+              : null;
+            const productImageUrl = productNode?.data?.imageUrl || productNode?.data?.images?.[0]?.dataUrl;
+            
+            console.log("[Canvas] Product image for fidelity:", productImageUrl ? "Found" : "Not found");
+            
+            const editResult = await editLifestyleImage({
+              agentId: agentNode.data.agentId as Id<"agents">,
+              currentImageUrl: agentNode.data.imageUrl,
+              editInstruction: cleanMessage,
+              productImageUrl: productImageUrl,
+            });
+            
+            // Update node with edited image
+            setNodes((nds: any) =>
+              nds.map((node: any) =>
+                node.id === agentNode.id
+                  ? {
+                      ...node,
+                      data: {
+                        ...node.data,
+                        imageUrl: editResult.imageUrl,
+                        status: "ready",
+                      },
+                    }
+                  : node
+              )
+            );
+            
+            // Save to database
+            await updateAgentDraft({
+              id: agentNode.data.agentId as Id<"agents">,
+              draft: "",
+              status: "ready",
+              imageUrl: editResult.imageUrl,
+              imageStorageId: editResult.storageId as Id<"_storage"> | undefined,
+            });
+            
+            // Add completion message
+            setTimeout(() => {
+              setChatMessages(prev => [...prev, {
+                id: `ai-complete-${Date.now()}`,
+                role: "ai",
+                content: "✅ Image edited! The scene and product are preserved, only your requested change was applied.",
+                timestamp: Date.now(),
+                agentId: agentNode.id,
+              }]);
+            }, 500);
+            
+          } else {
+            // No existing image - generate a new one
+            console.log("[Canvas] No existing image, using handleGenerate for initial generation");
+            await handleGenerate(agentNode.id, undefined, cleanMessage);
+            
+            setTimeout(() => {
+              setChatMessages(prev => [...prev, {
+                id: `ai-complete-${Date.now()}`,
+                role: "ai",
+                content: "✅ All set! Lifestyle image generated.",
+                timestamp: Date.now(),
+                agentId: agentNode.id,
+              }]);
+            }, 500);
+          }
           
           return;
 
         } catch (error: any) {
-          console.error("[Canvas] Lifestyle image generation error:", error);
+          console.error("[Canvas] Lifestyle image error:", error);
           
-          // Add error message to chat
           setChatMessages(prev => [...prev, {
             id: `ai-error-${Date.now()}`,
             role: "ai",
-            content: `❌ Sorry, I encountered an error: ${error?.message || "Failed to process your request"}. Please try again or generate a new image if the issue persists.`,
+            content: `❌ Sorry, I encountered an error: ${error?.message || "Failed to process your request"}. Please try again.`,
             timestamp: Date.now(),
             agentId: agentNode.id,
           }]);
           return;
         }
       } else if (agentNode.data.type === "infographic") {
-        console.log("[Canvas] Infographic chat - using same handleGenerate function as initial generation");
+        const hasExistingImage = !!agentNode.data.imageUrl;
+        
+        console.log("[Canvas] Infographic chat -", hasExistingImage ? "EDITING existing image" : "generating new image");
         
         // Create a dynamic response based on user's request for infographics
-        const getUserResponse = (message: string) => {
+        const getUserResponse = (message: string, isEdit: boolean) => {
           const lowerMsg = message.toLowerCase();
-          if (lowerMsg.includes('woman') || lowerMsg.includes('man') || lowerMsg.includes('person') || lowerMsg.includes('model')) return "Got it! Updating the person in the infographic now...";
-          if (lowerMsg.includes('color') || lowerMsg.includes('bright') || lowerMsg.includes('dark')) return "Got it! Updating the color scheme now...";
-          if (lowerMsg.includes('text') || lowerMsg.includes('headline') || lowerMsg.includes('callout')) return "Got it! Updating the text and callouts now...";
-          if (lowerMsg.includes('scene') || lowerMsg.includes('setting') || lowerMsg.includes('background')) return "Got it! Updating the scene and background now...";
-          if (lowerMsg.includes('style') || lowerMsg.includes('design') || lowerMsg.includes('layout')) return "Got it! Updating the design style now...";
-          if (lowerMsg.includes('benefit') || lowerMsg.includes('feature')) return "Got it! Updating the benefits and features now...";
-          return "Got it! Creating an updated infographic now...";
+          if (isEdit) {
+            if (lowerMsg.includes('woman') || lowerMsg.includes('man') || lowerMsg.includes('person') || lowerMsg.includes('model')) 
+              return "Got it! Editing to update the person while keeping the layout and product...";
+            if (lowerMsg.includes('color') || lowerMsg.includes('bright') || lowerMsg.includes('dark')) 
+              return "Got it! Editing the colors while keeping everything else...";
+            if (lowerMsg.includes('text') || lowerMsg.includes('headline') || lowerMsg.includes('callout')) 
+              return "Got it! Editing the text elements...";
+            return "Got it! Editing the infographic based on your instructions...";
+          } else {
+            if (lowerMsg.includes('color') || lowerMsg.includes('bright') || lowerMsg.includes('dark')) return "Got it! Creating with custom colors now...";
+            if (lowerMsg.includes('style') || lowerMsg.includes('design')) return "Got it! Creating with custom style now...";
+            return "Got it! Creating an infographic now...";
+          }
         };
 
         // Add immediate chat response
         setChatMessages(prev => [...prev, {
           id: `ai-${Date.now()}`,
           role: "ai",
-          content: getUserResponse(cleanMessage),
+          content: getUserResponse(cleanMessage, hasExistingImage),
           timestamp: Date.now(),
           agentId: agentNode.id,
         }]);
 
         try {
-          // Use the exact same handleGenerate function that works perfectly for initial generation
-          // This handles all the data gathering, product connections, and generation logic
-          console.log("[Canvas] About to call handleGenerate for infographic chat");
-          await handleGenerate(agentNode.id, undefined, cleanMessage);
-          console.log("[Canvas] handleGenerate completed for infographic chat");
-          
-          // Add completion message after generation is done
-          setTimeout(() => {
-            setChatMessages(prev => [...prev, {
-              id: `ai-complete-${Date.now()}`,
-              role: "ai",
-              content: "✅ All set! New infographic generated.",
-              timestamp: Date.now(),
-              agentId: agentNode.id,
-            }]);
-          }, 500); // Small delay to ensure node update is visible first
+          if (hasExistingImage && agentNode.data.agentId) {
+            // TRUE IMAGE EDITING
+            console.log("[Canvas] Using editInfographic for true image editing");
+            
+            // Get the product image URL from connected product node
+            const connectedProductEdge = edgesRef.current.find((e: any) => 
+              e.target === agentNode.id && e.source?.includes('product')
+            );
+            const productNode = connectedProductEdge 
+              ? nodesRef.current.find((n: any) => n.id === connectedProductEdge.source) 
+              : null;
+            const productImageUrl = productNode?.data?.imageUrl || productNode?.data?.images?.[0]?.dataUrl;
+            
+            const editResult = await editInfographic({
+              agentId: agentNode.data.agentId as Id<"agents">,
+              currentImageUrl: agentNode.data.imageUrl,
+              editInstruction: cleanMessage,
+              productImageUrl: productImageUrl,
+            });
+            
+            // Update node with edited image
+            setNodes((nds: any) =>
+              nds.map((node: any) =>
+                node.id === agentNode.id
+                  ? {
+                      ...node,
+                      data: {
+                        ...node.data,
+                        imageUrl: editResult.imageUrl,
+                        status: "ready",
+                      },
+                    }
+                  : node
+              )
+            );
+            
+            // Save to database
+            await updateAgentDraft({
+              id: agentNode.data.agentId as Id<"agents">,
+              draft: "",
+              status: "ready",
+              imageUrl: editResult.imageUrl,
+              imageStorageId: editResult.storageId as Id<"_storage"> | undefined,
+            });
+            
+            setTimeout(() => {
+              setChatMessages(prev => [...prev, {
+                id: `ai-complete-${Date.now()}`,
+                role: "ai",
+                content: "✅ Infographic edited! Layout and product preserved, only your requested change was applied.",
+                timestamp: Date.now(),
+                agentId: agentNode.id,
+              }]);
+            }, 500);
+            
+          } else {
+            // No existing image - generate a new one
+            await handleGenerate(agentNode.id, undefined, cleanMessage);
+            
+            setTimeout(() => {
+              setChatMessages(prev => [...prev, {
+                id: `ai-complete-${Date.now()}`,
+                role: "ai",
+                content: "✅ All set! Infographic generated.",
+                timestamp: Date.now(),
+                agentId: agentNode.id,
+              }]);
+            }, 500);
+          }
           
           return;
 
         } catch (error: any) {
-          console.error("[Canvas] Infographic generation error:", error);
+          console.error("[Canvas] Infographic error:", error);
           
-          // Add error message to chat
           setChatMessages(prev => [...prev, {
             id: `ai-error-${Date.now()}`,
             role: "ai",
-            content: `❌ Sorry, I encountered an error: ${error?.message || "Failed to process your request"}. Please try again or generate a new image if the issue persists.`,
+            content: `❌ Sorry, I encountered an error: ${error?.message || "Failed to process your request"}. Please try again.`,
             timestamp: Date.now(),
             agentId: agentNode.id,
           }]);
@@ -3352,7 +3546,7 @@ IMPORTANT INSTRUCTIONS:
         </aside>
 
         {/* Canvas */}
-        <div className="flex-1 relative" ref={reactFlowWrapper}>
+        <div className="flex-1 relative bg-background" ref={reactFlowWrapper}>
           <ReactFlow
             nodes={nodes}
             edges={edges.map((edge: any) => ({
@@ -3424,6 +3618,7 @@ IMPORTANT INSTRUCTIONS:
             minZoom={0.1}
             maxZoom={2}
             preventScrolling={false}
+            proOptions={{ hideAttribution: true }}
           >
             <Background 
               variant="dots" 
@@ -3433,7 +3628,7 @@ IMPORTANT INSTRUCTIONS:
               style={{ opacity: isDark ? 0.6 : 0.4 }}
             />
             <Controls 
-              className="!shadow-xl !border !border-border/50 !bg-background/95 !backdrop-blur-sm"
+              className="!shadow-xl !border !border-border/50 !bg-background/95 !backdrop-blur-sm [&>button]:!bg-background [&>button]:!text-foreground [&>button]:!border [&>button]:!border-border/50 [&>button:hover]:!bg-accent/20"
               showZoom={true}
               showFitView={true}
               showInteractive={true}

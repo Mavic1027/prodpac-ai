@@ -107,7 +107,7 @@ export function AmazonListingPreview({
   const bullets = bulletPoints ? cleanBulletPoints(bulletPoints).split('\n').filter(bullet => bullet.trim()) : [];
 
   return (
-    <div className="w-full mx-auto bg-white">
+    <div className="w-full mx-auto bg-white text-foreground">
       {/* Amazon Header */}
       <div className="bg-[#131921] text-white p-3">
         <div className="flex items-center gap-4">
@@ -190,7 +190,7 @@ export function AmazonListingPreview({
               <div className="text-blue-600 text-sm hover:underline cursor-pointer">
                 Visit the {brandName} Store
               </div>
-              <h1 className="text-2xl font-normal mt-1 leading-tight">
+              <h1 className="text-2xl font-normal mt-1 leading-tight text-gray-900">
                 {title || "Product title will appear here"}
               </h1>
             </div>
@@ -221,7 +221,7 @@ export function AmazonListingPreview({
             {/* Bullet Points */}
             {bullets.length > 0 && (
               <div>
-                <h3 className="font-medium text-base mb-2">About this item</h3>
+                <h3 className="font-medium text-base mb-2 text-gray-900">About this item</h3>
                 <ul className="space-y-1">
                   {bullets.slice(0, 5).map((bullet, index) => (
                     <li key={index} className="text-sm text-gray-700 flex items-start">

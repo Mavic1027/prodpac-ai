@@ -155,7 +155,7 @@ export function ContentModal({ isOpen, onClose, nodeData, onUpdate, productData,
               </Button>
             </div>
           </DialogHeader>
-          <div className="overflow-y-auto max-h-[calc(90vh-100px)]">
+          <div className="overflow-y-auto max-h-[calc(90vh-100px)] force-light">
             <AmazonListingPreview
               title={productData?.title || "Product Title"}
               bulletPoints={productData?.bulletPoints || ""}
@@ -265,7 +265,7 @@ export function ContentModal({ isOpen, onClose, nodeData, onUpdate, productData,
                 </TabsContent>
                 
                 <TabsContent value="preview" className="pt-2 m-0">
-                  <div className="px-0">
+              <div className="px-0 force-light">
                     <AmazonListingPreview
                       title={nodeData.type === "title" ? content : (productData?.title || "Product Title")}
                       bulletPoints={(nodeData.type === "description" || nodeData.type === "bullet-points") ? content : (productData?.bulletPoints || "")}

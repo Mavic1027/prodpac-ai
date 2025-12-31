@@ -1,7 +1,8 @@
 import { v } from "convex/values";
 import { action } from "./_generated/server";
 import { api } from "./_generated/api";
-import OpenAI, { toFile } from "openai";
+import { generateImage, imageUrlToBase64, base64ToBlob, getApiKey } from "./nanobananaPro";
+import { buildRefinementPrompt } from "./promptBuilder";
 
 export const refineHeroImage = action({
   args: {
@@ -32,12 +33,8 @@ export const refineHeroImage = action({
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) throw new Error("Unauthorized");
 
-    const apiKey = process.env.OPENAI_API_KEY;
-    if (!apiKey) {
-      throw new Error("OpenAI API key not configured");
-    }
-
-    const openai = new OpenAI({ apiKey });
+    // Get nanoBanana Pro API key from Convex environment
+    const apiKey = getApiKey();
 
     try {
       // Get product data if available
@@ -51,183 +48,55 @@ export const refineHeroImage = action({
         }
       }
 
-      // First, analyze the current hero image with GPT-4 Vision
-      console.log("[Hero Image Refine] Analyzing current hero image...");
-      
-      const analysisMessages: OpenAI.Chat.ChatCompletionMessageParam[] = [
+      // Convert current hero image to base64 for nanoBanana Pro
+      console.log("[Hero Image Refine] Converting current hero image to base64...");
+      const currentImageBase64 = await imageUrlToBase64(args.currentImageUrl);
+      console.log("[Hero Image Refine] Image converted, base64 length:", currentImageBase64.length);
+
+      // Build optimized refinement prompt for Gemini 3 Pro Image
+      console.log("[Hero Image Refine] Building optimized prompt for gemini-3-pro-image-preview");
+      const refinementPrompt = buildRefinementPrompt(
+        args.userMessage,
+        productData,
+        args.profileData
+      );
+      console.log("[Hero Image Refine] Refinement prompt length:", refinementPrompt.length);
+
+      // Use Gemini 3 Pro Image (gemini-3-pro-image-preview) to refine the hero image
+      console.log("[Hero Image Refine] Generating refined hero image with gemini-3-pro-image-preview...");
+      const imageResponse = await generateImage(
+        { apiKey, resolution: "2K", aspectRatio: "1:1" },
         {
-          role: "system",
-          content: "You are an expert Amazon product photographer. Analyze the current hero image and understand what needs to be changed based on the user's feedback for Amazon listing optimization.",
-        },
-        {
-          role: "user",
-          content: [
-            { 
-              type: "text", 
-              text: `Current hero image analysis needed. User feedback: "${args.userMessage}"\n\nAnalyze this Amazon hero image and describe:\n1. Product positioning and background\n2. Lighting and image quality\n3. Compliance with Amazon requirements\n4. What specific changes are needed based on the user's feedback` 
-            },
-            {
-              type: "image_url" as const,
-              image_url: {
-                url: args.currentImageUrl,
-                detail: "high" as const,
-              },
-            },
-          ],
-        },
-      ];
-      
-      const analysisResponse = await openai.chat.completions.create({
-        model: "gpt-4o",
-        messages: analysisMessages,
-        max_tokens: 500,
-      });
-      
-      const currentAnalysis = analysisResponse.choices[0].message.content || "";
-      console.log("[Hero Image Refine] Current hero image analysis:", currentAnalysis);
-
-      // Download the current hero image to use as base
-      console.log("[Hero Image Refine] Downloading current hero image...");
-      let imageFile;
-      
-      try {
-        const imageResponse = await fetch(args.currentImageUrl);
-        if (!imageResponse.ok) {
-          throw new Error("Failed to download current hero image");
-        }
-        
-        const imageBlob = await imageResponse.blob();
-        console.log("[Hero Image Refine] Image blob size:", imageBlob.size);
-        
-        // If image is too large, we might need to resize it
-        if (imageBlob.size > 4 * 1024 * 1024) { // 4MB limit
-          console.warn("[Hero Image Refine] Image is large, may cause issues");
-        }
-        
-        // Create file directly from blob
-        imageFile = await toFile(imageBlob, 'current-hero-image.png', {
-          type: imageBlob.type || 'image/png',
-        });
-      } catch (downloadError) {
-        console.error("[Hero Image Refine] Error downloading image:", downloadError);
-        throw new Error("Failed to process current hero image. Please try generating a new image instead.");
-      }
-
-      // Build refinement prompt
-      let refinementPrompt = "Edit this Amazon hero image based on user feedback:\n\n";
-      
-      refinementPrompt += `USER FEEDBACK: ${args.userMessage}\n\n`;
-      refinementPrompt += `CURRENT IMAGE ANALYSIS:\n${currentAnalysis}\n\n`;
-      
-      if (productData.title) {
-        refinementPrompt += `PRODUCT TITLE: ${productData.title}\n\n`;
-      }
-      
-      if (productData.features && productData.features.length > 0) {
-        refinementPrompt += `PRODUCT FEATURES:\n`;
-        productData.features.forEach((feature: string, index: number) => {
-          refinementPrompt += `${index + 1}. ${feature}\n`;
-        });
-        refinementPrompt += `\n`;
-      }
-      
-      refinementPrompt += "AMAZON HERO IMAGE REQUIREMENTS:\n";
-      refinementPrompt += "- Apply the user's requested changes while maintaining Amazon compliance\n";
-      refinementPrompt += "- Clean white background (RGB 255, 255, 255)\n";
-      refinementPrompt += "- Product fills 85% of image frame\n";
-      refinementPrompt += "- Professional lighting, no harsh shadows\n";
-      refinementPrompt += "- High resolution and sharp focus\n";
-      refinementPrompt += "- No text overlays or graphics\n";
-      
-      if (args.profileData) {
-        refinementPrompt += `\nBRAND STYLE: ${args.profileData.brandName} - ${args.profileData.niche}\n`;
-        refinementPrompt += `PRODUCT CATEGORY: ${args.profileData.productCategory}\n`;
-      }
-
-      console.log("[Hero Image Refine] Refinement prompt:", refinementPrompt.substring(0, 200) + "...");
-
-      // Use images.edit to refine the hero image
-      console.log("[Hero Image Refine] Generating refined hero image...");
-      let imageEditResponse;
-      
-      try {
-        imageEditResponse = await openai.images.edit({
-          model: "dall-e-2",
-          image: imageFile,
           prompt: refinementPrompt,
-          size: "1024x1024",
-        });
-      } catch (apiError: any) {
-        console.error("[Hero Image Refine] OpenAI API error:", apiError);
-        console.log("[Hero Image Refine] Falling back to generation instead of edit");
-        
-        // Fallback: Generate a new image based on the analysis and user feedback
-        const fallbackPrompt = `Create an Amazon hero image that incorporates these changes:\n\n${refinementPrompt}\n\nBased on analysis of previous image:\n${currentAnalysis}`;
-        
-        imageEditResponse = await openai.images.generate({
-          model: "dall-e-3",
-          prompt: fallbackPrompt,
-          size: "1024x1024",
-          quality: "hd",
-          n: 1,
-          style: "natural",
-        });
+          referenceImages: [currentImageBase64],
+        }
+      );
+      
+      if (!imageResponse.success) {
+        throw new Error(imageResponse.error || "Failed to refine hero image");
       }
 
-      // Handle the response
-      const imageData = imageEditResponse.data?.[0];
-      if (!imageData) {
-        throw new Error("No image data returned from refinement");
+      // Get base64 from response (Gemini API always returns base64 directly)
+      if (!imageResponse.imageBase64) {
+        throw new Error("No image data returned from Gemini API");
       }
+      const base64String = imageResponse.imageBase64;
 
-      let finalImageUrl: string;
-      let storageId: string;
-
-      if (imageData.b64_json) {
-        // Handle base64 response
-        console.log("[Hero Image Refine] Processing base64 image...");
-        const base64Data = imageData.b64_json;
-        
-        // Convert base64 to blob
-        const binaryString = atob(base64Data);
-        const bytes = new Uint8Array(binaryString.length);
-        for (let i = 0; i < binaryString.length; i++) {
-          bytes[i] = binaryString.charCodeAt(i);
-        }
-        const refinedImageBlob = new Blob([bytes], { type: 'image/png' });
-        
-        // Store in Convex
-        storageId = await ctx.storage.store(refinedImageBlob);
-        const url = await ctx.storage.getUrl(storageId);
-        if (!url) {
-          throw new Error("Failed to get URL for stored refined image");
-        }
-        finalImageUrl = url;
-      } else if (imageData.url) {
-        // Handle URL response
-        console.log("[Hero Image Refine] Downloading refined image from URL...");
-        const downloadResponse = await fetch(imageData.url);
-        if (!downloadResponse.ok) {
-          throw new Error("Failed to download refined hero image");
-        }
-        
-        const refinedImageBlob = await downloadResponse.blob();
-        
-        // Store in Convex
-        storageId = await ctx.storage.store(refinedImageBlob);
-        const url = await ctx.storage.getUrl(storageId);
-        if (!url) {
-          throw new Error("Failed to get URL for stored refined image");
-        }
-        finalImageUrl = url;
-      } else {
-        throw new Error("No image data in response");
+      // Convert base64 to blob for storage
+      const refinedImageBlob = base64ToBlob(base64String);
+      console.log("[Hero Image Refine] Refined image blob size:", refinedImageBlob.size);
+      
+      // Store in Convex
+      const storageId = await ctx.storage.store(refinedImageBlob);
+      const finalImageUrl = await ctx.storage.getUrl(storageId);
+      if (!finalImageUrl) {
+        throw new Error("Failed to get URL for stored refined image");
       }
 
       console.log("[Hero Image Refine] Hero image refinement completed successfully");
       
       return {
-        concept: currentAnalysis,
+        concept: `Refined hero image based on your feedback: "${args.userMessage}"`,
         imageUrl: finalImageUrl,
         prompt: refinementPrompt,
         storageId: storageId
@@ -238,7 +107,7 @@ export const refineHeroImage = action({
       
       // Provide helpful error messages
       if (error instanceof Error) {
-        if (error.message.includes("content_policy")) {
+        if (error.message.includes("content_policy") || error.message.includes("safety")) {
           throw new Error("The refinement request doesn't meet image generation guidelines. Please try different feedback or generate a new image.");
         } else if (error.message.includes("rate_limit")) {
           throw new Error("Too many requests. Please wait a moment and try again.");
@@ -250,4 +119,4 @@ export const refineHeroImage = action({
       throw error;
     }
   },
-}); 
+});
